@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
+import { promptSecret } from "../dist/prompt/secret.js";
 import { selectCheckTargets, selectCommandTarget, selectDiffTargets } from "../dist/prompt/select.js";
 
 class FakeInput extends EventEmitter {
@@ -83,4 +84,19 @@ test("other commands use a single-environment selector", async () => {
   assert.match(output.content, /Select an environment for show/);
   assert.match(output.content, /Enter show/);
   assert.equal(output.content.includes("Space select"), false);
+});
+
+test("secret prompt captures a value without echoing it", async () => {
+  const input = new FakeInput();
+  const output = new FakeOutput();
+  const value = promptSecret("Value for TOKEN (input hidden)", input, output);
+  input.emit("data", "top-secrex");
+  input.emit("data", "\u007f");
+  input.emit("data", "t\r");
+
+  assert.equal(await value, "top-secret");
+  assert.equal(input.isRaw, false);
+  assert.equal(input.paused, true);
+  assert.equal(output.content, "Value for TOKEN (input hidden): \n");
+  assert.equal(output.content.includes("top-secret"), false);
 });

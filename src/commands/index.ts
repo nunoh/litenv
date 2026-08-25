@@ -101,7 +101,8 @@ async function updateExampleIfRequested(
 ): Promise<void> {
   const exampleTransport = new LocalTransport(context.schemaFile);
   const exampleName = path.basename(context.schemaFile);
-  const example = EnvDocument.parse(await exampleTransport.read());
+  const originalExample = await exampleTransport.read();
+  const example = EnvDocument.parse(originalExample);
   const missing = [...new Set(keys)].filter((key) => !example.has(key));
   if (missing.length === 0) return;
 
@@ -119,7 +120,7 @@ async function updateExampleIfRequested(
 
   for (const key of missing) example.set(key, "");
   example.sortSections();
-  await exampleTransport.write(example.serialize());
+  await exampleTransport.write(example.serialize(), { expectedContent: originalExample });
   context.io.out(`${mark(context, "success")} ${exampleName} updated: ${missing.map((key) => keyName(context, key)).join(", ")}`);
 }
 
@@ -188,10 +189,11 @@ export async function setCommand(
     return [key, assignment.slice(equals + 1)] as const;
   });
   requireConfiguredReload(context, options.reload);
-  const document = EnvDocument.parse(await context.transport.read());
+  const original = await context.transport.read();
+  const document = EnvDocument.parse(original);
   for (const [key, value] of parsed) document.set(key, value);
   if (options.sort !== false) document.sortSections();
-  await context.transport.write(document.serialize());
+  await context.transport.write(document.serialize(), { expectedContent: original });
   for (const [key] of parsed) context.io.out(`${mark(context, "success")} ${statusPrefix(context)}${keyName(context, key)} updated`);
   await reloadAfterWrite(context, options.reload);
   await updateExampleIfRequested(context, parsed.map(([key]) => key), options.example ?? "prompt");
@@ -205,7 +207,8 @@ export async function unsetCommand(
 ): Promise<number> {
   requireKeys(keys, "litenv [environment] unset KEY [KEY ...]");
   requireConfiguredReload(context, options.reload);
-  const document = EnvDocument.parse(await context.transport.read());
+  const original = await context.transport.read();
+  const document = EnvDocument.parse(original);
   let changed = false;
   const results = keys.map((key) => {
     const removed = document.unset(key);
@@ -214,7 +217,7 @@ export async function unsetCommand(
   });
   if (changed) {
     if (options.sort !== false) document.sortSections();
-    await context.transport.write(document.serialize());
+    await context.transport.write(document.serialize(), { expectedContent: original });
   }
   for (const { key, removed } of results) {
     context.io.out(`${mark(context, removed ? "success" : "info")} ${statusPrefix(context)}${keyName(context, key)} ${removed ? "removed" : "not found"}`);
@@ -373,9 +376,10 @@ export async function sortCommand(
 ): Promise<number> {
   if (args.length !== 0) throw new UsageError("Usage: litenv [environment] sort");
   requireConfiguredReload(context, options.reload);
-  const document = EnvDocument.parse(await context.transport.read());
+  const original = await context.transport.read();
+  const document = EnvDocument.parse(original);
   document.sortSections();
-  await context.transport.write(document.serialize());
+  await context.transport.write(document.serialize(), { expectedContent: original });
   context.io.out(`${mark(context, "success")} ${context.targetName ? `${context.targetName} ` : ""}environment sorted`);
   await reloadAfterWrite(context, options.reload);
   return 0;

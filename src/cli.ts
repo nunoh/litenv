@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import path from "node:path";
+import { createRequire } from "node:module";
 import { createInterface } from "node:readline/promises";
 import {
   checkCommand,
@@ -18,12 +19,15 @@ import {
 } from "./commands/index.js";
 import { loadConfig } from "./config/load.js";
 import { LitenvError, UsageError } from "./errors.js";
+import { isValidKey } from "./env/document.js";
 import { paint } from "./output.js";
+import { promptSecret } from "./prompt/secret.js";
 import { selectCheckTargets, selectCommandTarget, selectDiffTargets } from "./prompt/select.js";
 import { LocalTransport } from "./transport/local.js";
 import { SshTransport } from "./transport/ssh.js";
 
-const VERSION = "1.0.0";
+const packageMetadata = createRequire(import.meta.url)("../package.json") as { version: string };
+const VERSION = packageMetadata.version;
 const COMMANDS = new Set(["get", "set", "unset", "keys", "show", "check", "sort", "diff"]);
 
 const HELP = `litenv — lightweight .env management, locally and over SSH
@@ -45,7 +49,7 @@ Environment selection:
 Commands:
   get KEY                    Print one raw value
   get KEY --all              Print the value from every environment
-  set KEY=VALUE [...]        Set one or more variables
+  set KEY[=VALUE] [...]      Set values inline or enter them without echo
   unset KEY [...]            Remove one or more variables
   keys                       Print variable names only
   show [--redact]            Show variables and values
@@ -70,6 +74,7 @@ Mutation options:
   --example       Add missing set keys to the configured example file
   --no-example    Never update the configured example file
   --reload        Run the configured remote reload without prompting
+  --stdin         Read one set value from stdin (one trailing newline is removed)
 
 Remote reloads:
   Add reload = "command" to an [env.NAME] table. Use --reload to run it.
@@ -108,6 +113,7 @@ interface ParsedArguments {
   all: boolean;
   summary: boolean;
   reload: boolean;
+  stdin: boolean;
 }
 
 function parseFlags(args: string[]): ParsedArguments {
@@ -118,6 +124,7 @@ function parseFlags(args: string[]): ParsedArguments {
   let all = false;
   let summary = false;
   let reload = false;
+  let stdin = false;
   const positionals: string[] = [];
   for (const argument of args) {
     if (argument === "--values") values = true;
@@ -129,6 +136,7 @@ function parseFlags(args: string[]): ParsedArguments {
     else if (argument === "--all") all = true;
     else if (argument === "--summary") summary = true;
     else if (argument === "--reload") reload = true;
+    else if (argument === "--stdin") stdin = true;
     else if (argument.startsWith("--")) throw new UsageError(`Unknown option: ${argument}`);
     else positionals.push(argument);
   }
@@ -141,6 +149,7 @@ function parseFlags(args: string[]): ParsedArguments {
     all,
     summary,
     reload,
+    stdin,
   };
 }
 
@@ -154,6 +163,43 @@ async function confirm(question: string): Promise<boolean> {
   }
 }
 
+async function readStdinValue(): Promise<string> {
+  process.stdin.setEncoding("utf8");
+  let value = "";
+  for await (const chunk of process.stdin) value += chunk;
+  return value.replace(/\r?\n$/, "");
+}
+
+async function resolveSetArguments(arguments_: string[], stdin: boolean): Promise<string[]> {
+  if (stdin) {
+    if (arguments_.length !== 1 || arguments_[0]?.includes("=")) {
+      throw new UsageError("--stdin requires exactly one variable name: litenv [environment] set KEY --stdin");
+    }
+    const key = arguments_[0] ?? "";
+    if (!isValidKey(key)) throw new UsageError(`Invalid environment variable name: ${key}`);
+    if (process.stdin.isTTY) {
+      throw new UsageError("--stdin requires piped input. Omit --stdin to enter the value securely in a terminal.");
+    }
+    return [`${key}=${await readStdinValue()}`];
+  }
+
+  const resolved: string[] = [];
+  for (const argument of arguments_) {
+    if (argument.includes("=")) {
+      resolved.push(argument);
+      continue;
+    }
+    if (!isValidKey(argument)) throw new UsageError(`Invalid assignment: ${argument}`);
+    if (!process.stdin.isTTY || !process.stderr.isTTY) {
+      throw new UsageError(`A value for ${argument} requires a terminal. Use ${argument}=VALUE or pipe it with --stdin.`);
+    }
+    const value = await promptSecret(`Value for ${argument} (input hidden)`);
+    if (value === undefined) throw new LitenvError("Value entry cancelled");
+    resolved.push(`${argument}=${value}`);
+  }
+  return resolved;
+}
+
 export async function run(argv: string[], cwd = process.cwd(), io = defaultIO()): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
     io.out(HELP);
@@ -164,7 +210,7 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
     return 0;
   }
 
-  const { positionals, values, redact, sort, example, all, summary, reload } = parseFlags(argv);
+  const { positionals, values, redact, sort, example, all, summary, reload, stdin } = parseFlags(argv);
   const config = await loadConfig(cwd);
   const projectRoot = config?.root ?? path.resolve(cwd);
   const localFileDisplay = config?.project.file ?? ".env";
@@ -201,6 +247,7 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
     if (all) throw new UsageError("--all is not supported by diff");
     if (summary) throw new UsageError("--summary is not supported by diff");
     if (reload) throw new UsageError("--reload is not supported by diff");
+    if (stdin) throw new UsageError("--stdin is not supported by diff");
     if (redact) throw new UsageError("--redact is not supported by diff");
     if (sort !== undefined) throw new UsageError(`${sort ? "--sort" : "--no-sort"} is not supported by diff`);
     if (example !== "prompt") throw new UsageError(`${example === "always" ? "--example" : "--no-example"} is not supported by diff`);
@@ -260,6 +307,7 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
   if (reload && command !== "set" && command !== "unset" && command !== "sort") {
     throw new UsageError(`--reload is not supported by ${command}`);
   }
+  if (stdin && command !== "set") throw new UsageError(`--stdin is not supported by ${command}`);
   if (all && (targetName || explicitLocal)) throw new UsageError("--all cannot be combined with a specific environment");
 
   if (all) {
@@ -367,19 +415,22 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
     if (command === "show" && redact) runArguments.push("--redact");
     if (command === "check" && summary) runArguments.push("--summary");
     if (reload) runArguments.push("--reload");
+    if (stdin) runArguments.push("--stdin");
     if ((command === "set" || command === "unset") && sort !== undefined) runArguments.push(sort ? "--sort" : "--no-sort");
     if (command === "set" && example !== "prompt") runArguments.push(example === "always" ? "--example" : "--no-example");
     showInteractiveRun(io, command, runArguments, interactiveTargets);
   }
 
+  const commandArguments = command === "set" ? await resolveSetArguments(positionals, stdin) : positionals;
+
   switch (command) {
-    case "get": return getCommand(context, positionals);
-    case "set": return setCommand(context, positionals, { sort: sort ?? defaultSort, example, reload: reloadMode });
-    case "unset": return unsetCommand(context, positionals, { sort: sort ?? defaultSort, reload: reloadMode });
-    case "keys": return keysCommand(context, positionals);
-    case "show": return showCommand(context, positionals, redact && !values);
-    case "check": return checkCommand(context, positionals, summary);
-    case "sort": return sortCommand(context, positionals, { reload: reloadMode });
+    case "get": return getCommand(context, commandArguments);
+    case "set": return setCommand(context, commandArguments, { sort: sort ?? defaultSort, example, reload: reloadMode });
+    case "unset": return unsetCommand(context, commandArguments, { sort: sort ?? defaultSort, reload: reloadMode });
+    case "keys": return keysCommand(context, commandArguments);
+    case "show": return showCommand(context, commandArguments, redact && !values);
+    case "check": return checkCommand(context, commandArguments, summary);
+    case "sort": return sortCommand(context, commandArguments, { reload: reloadMode });
     default: throw new UsageError(`Unknown command: ${command}`);
   }
 }

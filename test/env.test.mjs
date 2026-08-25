@@ -90,6 +90,36 @@ test("sort orders variables inside blank-line-delimited sections", () => {
   ].join("\n"));
 });
 
+test("sort treats comments and unknown lines as semantic boundaries", () => {
+  const document = EnvDocument.parse([
+    "# Service settings",
+    "Z_SERVICE=last",
+    "A_SERVICE=first",
+    "# This comment belongs to Z_TOKEN",
+    "Z_TOKEN=secret",
+    "# This comment belongs to A_TOKEN",
+    "A_TOKEN=other",
+    "UNSUPPORTED LINE",
+    "Z_TRAILING=last",
+    "A_TRAILING=first",
+    "",
+  ].join("\n"));
+  document.sortSections();
+  assert.equal(document.serialize(), [
+    "# Service settings",
+    "A_SERVICE=first",
+    "Z_SERVICE=last",
+    "# This comment belongs to Z_TOKEN",
+    "Z_TOKEN=secret",
+    "# This comment belongs to A_TOKEN",
+    "A_TOKEN=other",
+    "UNSUPPORTED LINE",
+    "A_TRAILING=first",
+    "Z_TRAILING=last",
+    "",
+  ].join("\n"));
+});
+
 test("validation distinguishes required, optional, and extra keys", () => {
   const example = EnvDocument.parse("DATABASE_URL=\nPORT=\nSENTRY_DSN= # optional\n");
   assert.deepEqual(readSchema(example), [

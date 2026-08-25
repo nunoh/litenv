@@ -17,7 +17,7 @@ import {
 } from "../dist/commands/index.js";
 import { parseConfig, loadConfig } from "../dist/config/load.js";
 import { LocalTransport } from "../dist/transport/local.js";
-import { SshTransport } from "../dist/transport/ssh.js";
+import { posixCksum, SshTransport } from "../dist/transport/ssh.js";
 
 class MemoryTransport {
   constructor(content = "") { this.content = content; }
@@ -436,6 +436,27 @@ test("local transport writes atomically and preserves permissions", async () => 
   assert.equal((await stat(file)).mode & 0o777, 0o640);
 });
 
+test("local transport refuses to overwrite a file changed since reading", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-local-stale-"));
+  const file = path.join(directory, ".env");
+  await writeFile(file, "FOO=old\n", "utf8");
+  const transport = new LocalTransport(file);
+  const original = await transport.read();
+  await writeFile(file, "FOO=changed-elsewhere\n", "utf8");
+
+  await assert.rejects(
+    transport.write("FOO=mine\n", { expectedContent: original }),
+    /changed since it was read; no changes were written/,
+  );
+  assert.equal(await readFile(file, "utf8"), "FOO=changed-elsewhere\n");
+});
+
+test("POSIX checksums match the remote cksum format", () => {
+  assert.equal(posixCksum(""), "4294967295 0");
+  assert.equal(posixCksum("FOO=bar\n"), "120070710 8");
+  assert.equal(posixCksum("hello"), "3287646509 5");
+});
+
 test("SSH transport streams file contents over stdin, never in the command", async () => {
   const calls = [];
   const runner = async (args, input) => {
@@ -454,6 +475,27 @@ test("SSH transport streams file contents over stdin, never in the command", asy
   assert.equal(calls[1].input, "FOO=very-secret\n");
   assert.match(calls[1].args[1], /mktemp/);
   assert.match(calls[1].args[1], /mv -f/);
+  assert.match(calls[1].args[1], /expected_cksum='1863560420 8'/);
+  assert.match(calls[1].args[1], /changed since it was read/);
+});
+
+test("SSH transport reports a stale remote file without sending secrets in the command", async () => {
+  const calls = [];
+  const runner = async (args, input) => {
+    calls.push({ args, input });
+    return calls.length === 1
+      ? { stdout: "FOO=old\n", stderr: "", code: 0 }
+      : { stdout: "", stderr: "environment file changed since it was read; no changes were written. Retry the command.\n", code: 73 };
+  };
+  const fixture = setup();
+  fixture.context.transport = new SshTransport("app-host", "/srv/app/.env", runner);
+
+  await assert.rejects(
+    setCommand(fixture.context, ["FOO=very-secret"], { example: "never" }),
+    /changed since it was read; no changes were written/,
+  );
+  assert.equal(calls[1].args[1].includes("very-secret"), false);
+  assert.equal(calls[1].input, "FOO=very-secret\n");
 });
 
 test("SSH transport runs configured commands on the same host", async () => {

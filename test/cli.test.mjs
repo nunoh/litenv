@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,6 +16,25 @@ async function run(args, cwd, env = {}) {
   } catch (error) {
     return { code: error.code, stdout: error.stdout, stderr: error.stderr };
   }
+}
+
+async function runWithInput(args, cwd, input, env = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cli, ...args], {
+      cwd,
+      env: { ...process.env, ...env },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    child.stdin.end(input);
+  });
 }
 
 test("local CLI workflow works from a directory below the project root", async () => {
@@ -39,7 +58,7 @@ test("local CLI workflow works from a directory below the project root", async (
 
 test("CLI uses exit code 2 for invalid usage and 1 for missing keys", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "litenv-errors-"));
-  const invalid = await run(["local", "set", "NOT_AN_ASSIGNMENT"], directory);
+  const invalid = await run(["local", "set", "NOT-A-KEY"], directory);
   assert.equal(invalid.code, 2);
   assert.match(invalid.stderr, /Invalid assignment/);
   const missing = await run(["local", "get", "MISSING"], directory);
@@ -55,8 +74,32 @@ test("help explains the optional environment prefix and only documents colon dif
   assert.match(result.stdout, /litenv diff\s+Choose 2–3 environments interactively/);
   assert.match(result.stdout, /Colon selectors are required in scripts/);
   assert.match(result.stdout, /--reload\s+Run the configured remote reload without prompting/);
+  assert.match(result.stdout, /--stdin\s+Read one set value from stdin/);
   assert.equal(result.stdout.includes("litenv diff ENVIRONMENT ENVIRONMENT"), false);
   assert.equal(result.stdout.includes("litenv diff prod"), false);
+});
+
+test("--version is read from package metadata", async () => {
+  const metadata = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
+  const result = await run(["--version"], process.cwd());
+  assert.deepEqual(result, { code: 0, stdout: `${metadata.version}\n`, stderr: "" });
+});
+
+test("set accepts one secret through stdin without printing it", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-stdin-"));
+  await writeFile(path.join(directory, ".env"), "PORT=3000\n", "utf8");
+  const result = await runWithInput(["local", "set", "TOKEN", "--stdin", "--no-example"], directory, "top-secret\n");
+
+  assert.deepEqual(result, { code: 0, stdout: "✓ TOKEN updated\n⚠ Not declared in .env.example: TOKEN\n", stderr: "" });
+  assert.equal(result.stdout.includes("top-secret"), false);
+  assert.equal(await readFile(path.join(directory, ".env"), "utf8"), "PORT=3000\nTOKEN=top-secret\n");
+});
+
+test("set requires secure input syntax outside a terminal", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-secure-input-"));
+  const result = await run(["local", "set", "TOKEN"], directory);
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /Use TOKEN=VALUE or pipe it with --stdin/);
 });
 
 test("bare diff gives non-interactive callers a colon-selector instruction", async () => {

@@ -209,24 +209,15 @@ export class EnvDocument {
   }
 
   sortSections(): void {
-    let sectionStart = 0;
+    let runStart = 0;
     for (let index = 0; index <= this.nodes.length; index += 1) {
-      if (index === this.nodes.length || this.nodes[index]?.type === "blank") {
-        const variableIndexes: number[] = [];
-        const variables: VariableNode[] = [];
-        for (let cursor = sectionStart; cursor < index; cursor += 1) {
-          const node = this.nodes[cursor];
-          if (node?.type === "variable") {
-            variableIndexes.push(cursor);
-            variables.push(node);
-          }
-        }
+      if (index === this.nodes.length || this.nodes[index]?.type !== "variable") {
+        const variables = this.nodes.slice(runStart, index) as VariableNode[];
         variables.sort((left, right) => left.key.localeCompare(right.key));
-        variableIndexes.forEach((nodeIndex, variableIndex) => {
-          const variable = variables[variableIndex];
-          if (variable) this.nodes[nodeIndex] = variable;
+        variables.forEach((variable, variableIndex) => {
+          this.nodes[runStart + variableIndex] = variable;
         });
-        sectionStart = index + 1;
+        runStart = index + 1;
       }
     }
   }

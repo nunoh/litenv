@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { LitenvError } from "../errors.js";
-import type { EnvTransport } from "./types.js";
+import type { EnvTransport, WriteOptions } from "./types.js";
 
 export interface ProcessResult {
   stdout: string;
@@ -35,6 +35,28 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
+const CKSUM_TABLE = Array.from({ length: 256 }, (_value, index) => {
+  let crc = index << 24;
+  for (let bit = 0; bit < 8; bit += 1) {
+    crc = (crc & 0x80000000) !== 0 ? (crc << 1) ^ 0x04c11db7 : crc << 1;
+  }
+  return crc >>> 0;
+});
+
+export function posixCksum(content: string): string {
+  const bytes = Buffer.from(content, "utf8");
+  let crc = 0;
+  for (const byte of bytes) {
+    crc = (((crc << 8) >>> 0) ^ (CKSUM_TABLE[((crc >>> 24) ^ byte) & 0xff] ?? 0)) >>> 0;
+  }
+  let length = bytes.length;
+  while (length > 0) {
+    crc = (((crc << 8) >>> 0) ^ (CKSUM_TABLE[((crc >>> 24) ^ (length & 0xff)) & 0xff] ?? 0)) >>> 0;
+    length = Math.floor(length / 256);
+  }
+  return `${(~crc) >>> 0} ${bytes.length}`;
+}
+
 export class SshTransport implements EnvTransport {
   constructor(
     readonly host: string,
@@ -60,11 +82,19 @@ export class SshTransport implements EnvTransport {
     await this.execute(command);
   }
 
-  async write(content: string): Promise<void> {
+  async write(content: string, options: WriteOptions = {}): Promise<void> {
     const target = shellQuote(this.file);
     const script = [
       "set -eu",
       `target=${target}`,
+      ...(options.expectedContent === undefined ? [] : [
+        `expected_cksum=${shellQuote(posixCksum(options.expectedContent))}`,
+        'if [ -e "$target" ]; then actual_cksum=$(cksum < "$target"); else actual_cksum="4294967295 0"; fi',
+        'if [ "$actual_cksum" != "$expected_cksum" ]; then',
+        '  echo "environment file changed since it was read; no changes were written. Retry the command." >&2',
+        "  exit 73",
+        "fi",
+      ]),
       'tmp=$(mktemp "${target}.litenv.XXXXXX")',
       'trap \'rm -f -- "$tmp"\' EXIT HUP INT TERM',
       'cat > "$tmp"',
