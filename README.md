@@ -2,22 +2,35 @@
 
 > Small, readable `.env` management — locally and over SSH.
 
-- check every environment against one `.env.example`
-- compare two or three environments without revealing values by default
-- read and update remote `.env` files through your existing SSH setup
-- preserve comments, spacing, sections, quoting, and file permissions
+- validate local and remote environments against one `.env.example`
+- compare values side by side across two or three environments, redacted by default
+- inspect, set, unset, and sort remote `.env` files through your existing SSH setup
+- choose environments interactively or use explicit, script-friendly commands
+- enter secrets without exposing them in shell history, and reject stale writes
+- preserve spacing, sections, quoting, inline comments, and file permissions
+- optionally keep `.env.example` in sync and reload applications after mutations
 
-`litenv` is deliberately not a secrets manager. It does not provide encrypted storage or secret distribution. It gives you a careful CLI for the `.env` files you already use.
+The name is **lite + env**: a lightweight tool for environment files. It also reads as “lit env”—an environment workflow that is, frankly, pretty cool.
+
+`litenv` is deliberately not a secrets manager. It does not provide encrypted storage or secret distribution. It gives developers running conventional apps on local machines and SSH-accessible servers a careful CLI for the `.env` files they already use.
 
 ## Quickstart
 
-Install globally:
+> `litenv` is currently in prerelease development and has not had its first npm release. Link this checkout to try it now:
+
+```sh
+npm install
+npm link
+litenv --help
+```
+
+After the first npm release, install globally:
 
 ```sh
 npm install --global litenv
 ```
 
-Or install in one project:
+Or install it in one project:
 
 ```sh
 npm install --save-dev litenv
@@ -116,7 +129,7 @@ Host my-app
   IdentityFile ~/.ssh/my-app
 ```
 
-Node.js and `litenv` do not need to be installed remotely.
+Node.js and `litenv` do not need to be installed remotely. The remote host needs SSH, a standard shell, and the POSIX `cksum` utility used to detect stale writes.
 
 ### Reload after writes
 
@@ -261,7 +274,7 @@ Unlike a regular `get`, this form intentionally labels every value and is design
 </details>
 
 <details>
-<summary><code>set KEY=VALUE [...]</code> — set one or more variables</summary>
+<summary><code>set KEY[=VALUE] [...]</code> — set one or more variables</summary>
 
 Set values locally or remotely:
 
@@ -269,6 +282,22 @@ Set values locally or remotely:
 litenv local set PORT=3000
 litenv prod set PORT=3000 API_TIMEOUT=5000
 ```
+
+For secrets, omit the value and litenv asks for it without echoing the input:
+
+```console
+$ litenv prod set INTERNAL_TOKEN
+Value for INTERNAL_TOKEN (input hidden):
+✓ prod: INTERNAL_TOKEN updated
+```
+
+Pipe one value in scripts so it never appears in the command arguments:
+
+```sh
+printf %s "$INTERNAL_TOKEN" | litenv prod set INTERNAL_TOKEN --stdin --no-example
+```
+
+`--stdin` accepts exactly one key and removes one trailing newline from the piped value. Inline `KEY=VALUE` remains convenient for non-sensitive values.
 
 ```text
 ✓ prod: PORT updated
@@ -283,10 +312,10 @@ Use explicit behavior in scripts:
 
 ```sh
 litenv prod set API_TIMEOUT=5000 --example
-litenv prod set INTERNAL_TOKEN=secret --no-example
+litenv prod set LOG_LEVEL=debug --no-example
 ```
 
-Mutations sort variables inside each blank-line-delimited section by default:
+Mutations sort contiguous variable runs by default. Comments, blank lines, and unknown lines act as boundaries so sorting cannot silently attach a comment to the wrong key:
 
 ```sh
 litenv prod set PORT=3000 --no-sort
@@ -300,6 +329,7 @@ litenv prod set PORT=3000 --sort
 | `--sort` | Sort even when `project.sort` is `false` |
 | `--no-sort` | Preserve the current variable order |
 | `--reload` | Run the configured remote reload without prompting |
+| `--stdin` | Read one value from stdin instead of command arguments |
 
 When the selected remote environment defines `reload`, interactive use asks whether to run it after the file write. Add `--reload` to run it without prompting.
 
@@ -471,7 +501,7 @@ $ litenv prod sort
 ✓ prod environment sorted
 ```
 
-Sorting is section-aware. Blank lines separate sections, and comments remain with their surrounding section.
+Sorting is comment-aware. Contiguous variable runs are alphabetized, while comments, blank lines, and unknown lines remain semantic boundaries. Inline comments move with their variables.
 
 `set` and `unset` already sort by default. Use `sort` when an existing file needs a complete cleanup.
 
@@ -619,10 +649,12 @@ npx litenv check --all --summary
 - Values are data. Shell substitutions and variable references are never executed or interpolated.
 - Local writes use a temporary file in the same directory followed by an atomic rename.
 - Remote writes stream content over stdin to an unpredictable temporary file, preserve the original mode when possible, and atomically rename it into place.
+- Before replacing a file, mutations verify that it still matches the version litenv read. If another process changed it, litenv refuses the write and asks you to retry.
 - `diff` hides values unless `--values` is present.
 - `show` reveals values unless `--redact` is present.
 - `get` intentionally prints the requested value.
 - Mutation status output never echoes values.
+- `set KEY` reads a value without terminal echo; `set KEY --stdin` keeps it out of process arguments. Inline `KEY=VALUE` can still be retained by shell history.
 - A configured `reload` value is executed as a remote shell command. Treat `litenv.toml` as trusted executable configuration before running mutations.
 
 `litenv` does not encrypt `.env` files or replace a secret manager. Protect files, terminal output, shell history, SSH access, and CI logs accordingly.

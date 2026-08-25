@@ -8,55 +8,26 @@ Last reviewed: 2026-08-25
 
 The package is structurally ready to publish:
 
-- The `litenv` package name returned `404 Not Found` from the npm registry when checked, which indicates that it is currently available. The final publish is authoritative because availability can change.
+- The `litenv` package name returned `404 Not Found` from the npm registry on 2026-08-25, which indicates that it is currently available. The final publish is authoritative because availability can change.
+- The prerelease version is `0.1.0` while CLI and configuration design can still evolve.
 - `package.json` exposes the CLI through the `bin` field.
-- `prepack` builds the TypeScript source before packaging.
-- The package contains `dist`, `README.md`, `LICENSE`, and `package.json`.
-- The dry-run package is approximately 34 KB compressed and contains 43 files.
+- Package metadata points to `github.com/nunoh/litenv`, and public publishing is explicit.
+- `prepack` builds the TypeScript source, while `prepublishOnly` runs the complete test suite.
+- The package contains compiled output, TypeScript source, `README.md`, `CHANGELOG.md`, `LICENSE`, and `package.json`.
+- The dry-run package is approximately 54 KB compressed and contains 60 files.
 - The CLI has no runtime npm dependencies.
-- All 54 tests pass.
+- All 62 tests pass.
+- GitHub Actions tests Node.js 18, 20, and 22 and inspects the package dry run.
 
 ## Before the first release
 
-### 1. Add package metadata
+### 1. Decide source visibility
 
-Once the GitHub repository location is known, add the following metadata to `package.json` with the real username and URLs:
-
-```json
-{
-  "author": "Nuno",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/USERNAME/litenv.git"
-  },
-  "homepage": "https://github.com/USERNAME/litenv#readme",
-  "bugs": {
-    "url": "https://github.com/USERNAME/litenv/issues"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "scripts": {
-    "prepublishOnly": "npm test"
-  }
-}
-```
-
-Keep the existing scripts when adding `prepublishOnly`.
+The GitHub repository currently exists as a private repository. npm permits publishing from it, but users following the package metadata will not be able to inspect the source or open issues. Make the repository public before release if litenv is intended to be an open-source MIT project.
 
 The project does not need a `main` or `exports` field while it is distributed only as a CLI. Add a public module entry point later only if JavaScript or TypeScript consumers should be able to import it as a library.
 
-### 2. Choose the initial version
-
-The current version is `1.0.0`. Keep it if the CLI behavior and `litenv.toml` format are considered stable. Use `0.1.0` instead if breaking design changes are still expected.
-
-An npm package version cannot be published again after that exact name and version have been used.
-
-### 3. Create the source repository
-
-Initialize Git, create the GitHub repository, and push the source before publishing. npm does not require a public Git repository, but it gives users a place to inspect the source, report issues, and review release history.
-
-### 4. Repair the local npm cache
+### 2. Repair the local npm cache
 
 The npm cache at `/Users/developer/.npm` currently contains root-owned files. npm recommended repairing its ownership with:
 
@@ -66,7 +37,9 @@ sudo chown -R 501:20 /Users/developer/.npm
 
 Review the path before running the command. It should target only this user's npm cache.
 
-### 5. Authenticate with npm
+Using `--cache /private/tmp/litenv-npm-cache` is a temporary workaround for local dry runs, not a permanent repair.
+
+### 3. Authenticate with npm
 
 Create an npm account if necessary, enable two-factor authentication, and sign in:
 
@@ -84,7 +57,7 @@ See the official npm documentation:
 
 ## First release
 
-Run the complete test suite, inspect the package contents, and then publish:
+Remove the prerelease notice from the README, date the `0.1.0` changelog entry, run the complete test suite, inspect the package contents, and then publish:
 
 ```sh
 npm test
