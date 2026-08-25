@@ -642,6 +642,7 @@ Set `NO_COLOR=1` to disable terminal styling. Output is automatically plain when
 ```sh
 npm install
 npm test
+npm run cloc
 ```
 
 Link the development build globally:
