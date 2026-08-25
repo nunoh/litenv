@@ -2,12 +2,12 @@
 
 > Small, readable `.env` management — locally and over SSH.
 
-- Check every environment against one `.env.example`.
-- Compare two or three environments without revealing values by default.
-- Read and update remote `.env` files through your existing SSH configuration.
-- Preserve comments, spacing, sections, quoting, and file permissions.
+- check every environment against one `.env.example`
+- compare two or three environments without revealing values by default
+- read and update remote `.env` files through your existing SSH setup
+- preserve comments, spacing, sections, quoting, and file permissions
 
-`litenv` is deliberately not a secrets manager. It does not provide encrypted storage or secret distribution; it gives you a careful CLI for the `.env` files you already use.
+`litenv` is deliberately not a secrets manager. It does not provide encrypted storage or secret distribution. It gives you a careful CLI for the `.env` files you already use.
 
 ## Quickstart
 
@@ -17,7 +17,7 @@ Install globally:
 npm install --global litenv
 ```
 
-Or add it to one project:
+Or install in one project:
 
 ```sh
 npm install --save-dev litenv
@@ -26,7 +26,7 @@ npx litenv check
 
 Node.js 18 or newer is required.
 
-Create the schema your environments should follow:
+Use `.env.example` as your schema:
 
 ```dotenv
 # .env.example
@@ -36,21 +36,17 @@ PORT=
 SENTRY_DSN= # optional
 ```
 
-With a partial local environment:
+With a partial local file:
 
 ```dotenv
 # .env
 PORT=3000
 ```
 
-Then check an environment:
+Check your local `.env`:
 
 ```console
-$ litenv check
-
-Command
-  `litenv local check`
-
+$ litenv local check
 Check
   Environment  dev (local)
   Values file  .env
@@ -67,16 +63,22 @@ Problems
 ✗ environment invalid
 ```
 
-Bare commands open an environment selector. Use `local` or a configured environment name explicitly in scripts:
+Or omit `local` to choose an environment interactively:
 
-```sh
-litenv local check
-litenv prod check
+```console
+$ litenv check
+
+Command
+  `litenv local check`
+
+...
 ```
 
-## Add remote environments
+## Manage Anywhere
 
-Create `litenv.toml` in the project root:
+> Use the same commands for local, staging, and production-like environments. The remote machine only needs SSH and a standard shell.
+
+Create `litenv.toml`:
 
 ```toml
 [project]
@@ -95,7 +97,16 @@ host = "my-app"
 file = "/srv/my-app/.env"
 ```
 
-The `host` values are passed directly to the system `ssh` command. Put usernames, identity files, ports, jump hosts, and other connection details in `~/.ssh/config`:
+Then target environments by name:
+
+```sh
+litenv prod get DATABASE_URL
+litenv staging set PORT=3000
+litenv prod check
+litenv prod sort
+```
+
+`host` is passed to the system `ssh` command. Keep usernames, ports, keys, jump hosts, and connection options in `~/.ssh/config`:
 
 ```sshconfig
 Host my-app
@@ -104,31 +115,21 @@ Host my-app
   IdentityFile ~/.ssh/my-app
 ```
 
-The remote machine needs SSH and a standard shell. It does not need Node.js or `litenv` installed.
+Node.js and `litenv` do not need to be installed remotely.
 
-Now the same commands work remotely:
+## Check Every Environment
+
+> Select any number of environments interactively, or use `--all` to check everything configured.
 
 ```sh
-litenv prod get DATABASE_URL
-litenv prod set PORT=3000
-litenv prod check
-litenv prod sort
+litenv check
+litenv check --all
+litenv check --all --summary
 ```
 
-## Check every environment
+The aggregate summary repeats every problem, so the bottom of the output is enough to diagnose the whole project:
 
-Run `check` without a target to select one or more environments interactively. Use Space to toggle environments and Enter to run the check.
-
-```console
-$ litenv check
-
-Commands
-  `litenv local check`
-  `litenv staging check`
-  `litenv prod check`
-
-...
-
+```text
 Summary
   ✓ Valid (1): dev
   ⚠ Warnings (1): staging
@@ -145,49 +146,18 @@ Problems
       ✗ JWT_SECRET
 ```
 
-The bottom summary is self-contained: it names each valid, warning, invalid, or unreachable environment and repeats every problem grouped by environment.
+`--summary` hides the individual environment sections and prints only the complete result above.
 
-Check local plus every environment in `litenv.toml` without opening the selector:
+## Compare Without Leaking Values
 
-```sh
-litenv check --all
-```
-
-Show only the complete summary, without the individual environment sections:
-
-```sh
-litenv check --all --summary
-```
-
-`--summary` also works with an explicit environment or after interactive selection:
-
-```sh
-litenv prod check --summary
-litenv check --summary
-```
-
-Checks run sequentially so SSH authentication prompts and errors remain readable. The command exits with status `1` if an environment is invalid or cannot be read.
-
-## Compare environments
-
-Run `diff` to select two or three environments:
+> Diff two or three environments in one table. Values stay hidden unless you explicitly add `--values`.
 
 ```sh
 litenv diff
-```
-
-Or provide a colon selector explicitly:
-
-```sh
 litenv prod:staging diff
 litenv :prod diff
-litenv staging: diff
 litenv :staging:prod diff
 ```
-
-An empty target means local. Therefore `:prod` compares local with `prod`, while `:staging:prod` performs a three-way comparison.
-
-Values are hidden by default:
 
 ```text
 KEY             DEV      STAGING  PROD     RESULT
@@ -198,19 +168,42 @@ PORT            present  present  present  same
 SENTRY_DSN      —        present  present  missing in dev
 ```
 
-Reveal values only when you explicitly intend to display them:
+An empty target means local, so `:prod` compares local with `prod`. Add `--values` only when displaying the real values is intentional.
+
+## Commands
+
+Every litenv command is listed below. Expand one for syntax, examples, output, flags, and scripting behavior.
+
+<details>
+<summary><code>get KEY</code> — print one raw value</summary>
+
+Choose an environment interactively:
 
 ```sh
-litenv :staging:prod diff --values
+litenv get DATABASE_URL
 ```
 
-Values containing newlines, tabs, or terminal control characters are escaped so they cannot break the table layout.
+Target local or remote explicitly:
 
-The colon selector is the only explicit diff syntax. Comparisons are capped at three environments to keep the output readable.
+```sh
+litenv local get DATABASE_URL
+litenv prod get DATABASE_URL
+```
 
-## Compare one variable everywhere
+`get` writes only the raw value to stdout, which keeps command substitution simple:
 
-Read one key from local and every configured environment:
+```sh
+DATABASE_URL="$(litenv prod get DATABASE_URL)"
+```
+
+A missing key exits with status `1` and writes `KEY not found` to stderr.
+
+</details>
+
+<details>
+<summary><code>get KEY --all</code> — compare one value everywhere</summary>
+
+Read a key from local plus every configured environment:
 
 ```console
 $ litenv get PORT --all
@@ -221,36 +214,56 @@ staging      3000   found
 prod         —      failed: connection refused
 ```
 
-`get --all` continues through missing variables and connection failures, then exits with status `1` if any lookup was unsuccessful.
+The command continues through missing values and connection failures. It exits with status `1` if any lookup was unsuccessful.
 
-A regular single-environment `get` stays shell-friendly and prints only the raw value:
+Unlike a regular `get`, this form intentionally labels every value and is designed for comparison rather than raw command substitution.
+
+</details>
+
+<details>
+<summary><code>set KEY=VALUE [...]</code> — set one or more variables</summary>
+
+Set values locally or remotely:
 
 ```sh
-PORT="$(litenv prod get PORT)"
+litenv local set PORT=3000
+litenv prod set PORT=3000 API_TIMEOUT=5000
 ```
 
-## Update variables safely
-
-Set one or more values:
-
-```console
-$ litenv prod set PORT=3000 API_TIMEOUT=5000
+```text
 ✓ prod: PORT updated
 ✓ prod: API_TIMEOUT updated
 API_TIMEOUT is missing from .env.example. Add it? [y/N] y
 ✓ .env.example updated: API_TIMEOUT
 ```
 
-Only empty placeholders are added to `.env.example`; secret values are never copied there. Mutation status messages also never echo values.
+Only empty placeholders are added to `.env.example`; values are never copied there. Mutation status output also never echoes values.
 
-Control example-file synchronization explicitly in scripts:
+Use explicit behavior in scripts:
 
 ```sh
 litenv prod set API_TIMEOUT=5000 --example
 litenv prod set INTERNAL_TOKEN=secret --no-example
 ```
 
-Remove variables:
+Mutations sort variables inside each blank-line-delimited section by default:
+
+```sh
+litenv prod set PORT=3000 --no-sort
+litenv prod set PORT=3000 --sort
+```
+
+| Option | Effect |
+| --- | --- |
+| `--example` | Add missing keys to `.env.example` with empty values |
+| `--no-example` | Never update `.env.example` |
+| `--sort` | Sort even when `project.sort` is `false` |
+| `--no-sort` | Preserve the current variable order |
+
+</details>
+
+<details>
+<summary><code>unset KEY [...]</code> — remove one or more variables</summary>
 
 ```console
 $ litenv staging unset DEBUG_TOOL LEGACY_API_KEY
@@ -258,28 +271,46 @@ $ litenv staging unset DEBUG_TOOL LEGACY_API_KEY
 ○ staging: LEGACY_API_KEY not found
 ```
 
-`set` and `unset` sort variables inside each blank-line-delimited section by default. Override that behavior for one command:
+Unset locally or remotely:
 
 ```sh
-litenv prod set PORT=3000 --no-sort
-litenv prod unset OLD_KEY --no-sort
+litenv local unset DEBUG_TOOL
+litenv prod unset DEBUG_TOOL LEGACY_API_KEY
 ```
 
-Or sort an entire environment explicitly:
+The file is sorted after a successful removal by default. Use `--no-sort` to preserve its current order.
+
+</details>
+
+<details>
+<summary><code>keys</code> — print variable names only</summary>
+
+```console
+$ litenv prod keys
+DATABASE_URL
+JWT_SECRET
+PORT
+SENTRY_DSN
+```
+
+`keys` prints one undecorated key per line, making it safe to pipe or redirect:
 
 ```sh
-litenv prod sort
+litenv prod keys > prod-keys.txt
 ```
 
-## Inspect values
+</details>
 
-Show an environment:
+<details>
+<summary><code>show [--redact]</code> — show an environment</summary>
+
+Show real values:
 
 ```sh
 litenv prod show
 ```
 
-`show` displays real values. Redact them before sharing output:
+Redact values before sharing output:
 
 ```console
 $ litenv prod show --redact
@@ -288,37 +319,14 @@ JWT_SECRET=************
 PORT=****
 ```
 
-List only names or retrieve one raw value:
+`show` reveals values by default. Redaction uses one `*` per character so the original length remains visible.
 
-```sh
-litenv prod keys
-litenv prod get DATABASE_URL
-```
+</details>
 
-## Environment selection
+<details>
+<summary><code>check [--summary]</code> — validate one or more environments</summary>
 
-Every command that needs an environment opens a selector when the environment prefix is omitted:
-
-| Command | Interactive selection |
-| --- | --- |
-| `get`, `set`, `unset`, `keys`, `show`, `sort` | Exactly one environment |
-| `check` | One or more environments |
-| `diff` | Two or three environments |
-
-After selection, litenv prints a small command callout before the results:
-
-```text
-Command
-  `litenv prod check`
-```
-
-This makes the equivalent explicit form easy to discover. For multiple checks, each selected environment is shown as its own command.
-
-Interactive selectors require a terminal. CI jobs, pipes, and other non-interactive callers must use `local`, a configured environment, `check --all`, `get --all`, or an explicit diff selector.
-
-## Validation rules
-
-`.env.example` acts as the schema for every environment:
+`.env.example` is the schema:
 
 ```dotenv
 DATABASE_URL=
@@ -326,14 +334,27 @@ JWT_SECRET=
 SENTRY_DSN= # optional
 ```
 
-- Variables are required by default.
-- The exact inline annotation `# optional` makes a variable optional.
-- Missing required variables fail the check.
-- Undeclared variables warn by default.
-- `[project] undeclared = "error"` makes undeclared variables fail the check.
-- Every problem variable is printed on its own line.
+- variables are required by default
+- the exact annotation `# optional` makes a variable optional
+- missing required variables fail the check
+- undeclared variables warn by default
+- `project.undeclared = "error"` makes undeclared variables fail the check
 
-Example with both kinds of problem:
+Choose one or more environments:
+
+```sh
+litenv check
+```
+
+Or target one explicitly:
+
+```sh
+litenv local check
+litenv prod check
+litenv prod check --summary
+```
+
+Example failure:
 
 ```text
 Check
@@ -354,9 +375,145 @@ Problems
 ✗ prod environment invalid
 ```
 
-## Configuration reference
+Each problem variable gets its own line. `--summary` removes successful and optional variable details while retaining problems and the final result.
 
-The CLI searches from the current directory upward for `litenv.toml`. The directory containing it becomes the project root.
+</details>
+
+<details>
+<summary><code>check --all [--summary]</code> — validate everything configured</summary>
+
+Check local first, followed by every `[env.NAME]` entry:
+
+```sh
+litenv check --all
+```
+
+Only print the self-contained aggregate result:
+
+```sh
+litenv check --all --summary
+```
+
+Checks run sequentially so SSH prompts and diagnostics remain readable. Unreachable environments do not stop later checks. The command exits with status `1` if any environment is invalid or cannot be read.
+
+```text
+Summary
+  ✓ Valid (2): dev, staging
+  ⚠ Warnings (1): preview
+  ✗ Invalid (1): prod
+  ✗ Failed (1): qa
+
+Problems
+  preview
+    ⚠ Not declared in .env.example (1)
+      ⚠ DEBUG_TOOL
+
+  prod
+    ✗ Missing required (1)
+      ✗ DATABASE_URL
+
+  qa
+    ✗ SSH operation failed on qa
+```
+
+</details>
+
+<details>
+<summary><code>sort</code> — sort variables within sections</summary>
+
+```console
+$ litenv prod sort
+✓ prod environment sorted
+```
+
+Sorting is section-aware. Blank lines separate sections, and comments remain with their surrounding section.
+
+`set` and `unset` already sort by default. Use `sort` when an existing file needs a complete cleanup.
+
+</details>
+
+<details>
+<summary><code>diff</code> — compare two or three environments</summary>
+
+Choose targets interactively:
+
+```sh
+litenv diff
+```
+
+Use the explicit colon syntax in scripts:
+
+```sh
+litenv prod:staging diff
+litenv :prod diff
+litenv staging: diff
+litenv :staging:prod diff
+```
+
+Colon selectors contain exactly two or three unique targets. An empty target means local.
+
+The default table reports presence and equality without showing values:
+
+```text
+KEY           DEV      PROD     RESULT
+────────────  ───────  ───────  ─────────
+DATABASE_URL  present  present  different
+DEBUG_TOOL    present  —        only dev
+PORT          present  present  same
+```
+
+Reveal values explicitly:
+
+```sh
+litenv :prod diff --values
+```
+
+Newlines, tabs, backslashes, and control characters are escaped to keep every value on one terminal row.
+
+</details>
+
+<details>
+<summary><code>--help</code> and <code>--version</code> — CLI information</summary>
+
+```sh
+litenv --help
+litenv -h
+litenv --version
+litenv -v
+```
+
+</details>
+
+## Environment Selection
+
+Omit the environment prefix to open a terminal selector:
+
+| Command | Selection |
+| --- | --- |
+| `get`, `set`, `unset`, `keys`, `show`, `sort` | Exactly one environment |
+| `check` | One or more environments |
+| `diff` | Two or three environments |
+
+After selection, litenv prints a small callout showing the explicit command:
+
+```text
+Command
+  `litenv prod check`
+```
+
+Multiple checks show one command per selected environment:
+
+```text
+Commands
+  `litenv local check`
+  `litenv staging check`
+```
+
+Interactive selection requires a terminal. Scripts, CI jobs, pipes, and redirects must use an explicit target, `check --all`, `get --all`, or a colon diff selector.
+
+## Configuration
+
+The CLI searches upward from the current directory for `litenv.toml`. Its directory becomes the project root.
 
 ### Project settings
 
@@ -365,10 +522,10 @@ The CLI searches from the current directory upward for `litenv.toml`. The direct
 | `file` | `".env"` | Local values file, relative to the project root unless absolute |
 | `example` | `".env.example"` | Validation schema, relative to the project root unless absolute |
 | `local_name` | `"dev"` | Display name for the local environment |
-| `sort` | `true` | Sort mutations inside sections by default |
+| `sort` | `true` | Sort successful mutations inside sections |
 | `undeclared` | `"warn"` | Treat undeclared variables as `"warn"` or `"error"` |
 
-### Remote environment settings
+### Remote environments
 
 Each `[env.NAME]` table requires:
 
@@ -377,36 +534,9 @@ Each `[env.NAME]` table requires:
 | `host` | SSH host or alias passed to the system `ssh` command |
 | `file` | Path to the remote `.env` file; use an absolute path |
 
-## Command reference
-
-| Command | Purpose |
-| --- | --- |
-| `get KEY` | Print one raw value |
-| `get KEY --all` | Print the value across all environments |
-| `set KEY=VALUE [...]` | Set one or more variables |
-| `unset KEY [...]` | Remove one or more variables |
-| `keys` | Print variable names only |
-| `show [--redact]` | Show variables and values |
-| `check [--summary]` | Validate one or more selected environments |
-| `check --all [--summary]` | Validate local and all configured environments |
-| `sort` | Sort variables within sections |
-| `diff` | Select two or three environments to compare |
-| `TARGET:TARGET[:TARGET] diff [--values]` | Compare environments explicitly |
-
-### Mutation options
-
-| Option | Effect |
-| --- | --- |
-| `--sort` | Sort even when `project.sort` is `false` |
-| `--no-sort` | Preserve the current variable order |
-| `--example` | Add missing set keys to `.env.example` |
-| `--no-example` | Never update `.env.example` |
-
-Set `NO_COLOR=1` to disable terminal styling. Output is automatically plain when redirected.
-
 ## CI
 
-Install litenv as a development dependency. After the job creates or retrieves its `.env` file, use an explicit target:
+Install litenv as a development dependency. After creating or retrieving the job's `.env` file, use an explicit target:
 
 ```yaml
 # .github/workflows/env-check.yml
@@ -435,19 +565,22 @@ For remote checks, configure SSH authentication in the job and run:
 npx litenv check --all --summary
 ```
 
-## File and secret safety
+## File and Secret Safety
 
 - Common dotenv forms are supported: unquoted, single-quoted, and double-quoted values, empty values, inline comments, and values containing `=`.
-- Values are treated as data. Shell substitutions and variable references are never executed or interpolated.
+- Values are data. Shell substitutions and variable references are never executed or interpolated.
 - Local writes use a temporary file in the same directory followed by an atomic rename.
-- Remote writes stream content over stdin to an unpredictable temporary file, preserve the existing mode when possible, and atomically rename it into place.
+- Remote writes stream content over stdin to an unpredictable temporary file, preserve the original mode when possible, and atomically rename it into place.
 - `diff` hides values unless `--values` is present.
 - `show` reveals values unless `--redact` is present.
 - `get` intentionally prints the requested value.
+- Mutation status output never echoes values.
 
 `litenv` does not encrypt `.env` files or replace a secret manager. Protect files, terminal output, shell history, SSH access, and CI logs accordingly.
 
-## Exit codes
+Set `NO_COLOR=1` to disable terminal styling. Output is automatically plain when redirected.
+
+## Exit Codes
 
 | Code | Meaning |
 | --- | --- |
