@@ -1,0 +1,33 @@
+{
+  "name": "litenv",
+  "version": "1.0.0",
+  "description": "Lightweight .env management, locally and over SSH",
+  "type": "module",
+  "bin": {
+    "litenv": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepack": "npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "keywords": [
+    "dotenv",
+    "env",
+    "ssh",
+    "cli"
+  ],
+  "license": "MIT"
+}
