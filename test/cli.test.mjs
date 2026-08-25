@@ -54,6 +54,7 @@ test("help explains the optional environment prefix and only documents colon dif
   assert.match(result.stdout, /\[environment] is optional/);
   assert.match(result.stdout, /litenv diff\s+Choose 2–3 environments interactively/);
   assert.match(result.stdout, /Colon selectors are required in scripts/);
+  assert.match(result.stdout, /--reload\s+Run the configured remote reload without prompting/);
   assert.equal(result.stdout.includes("litenv diff ENVIRONMENT ENVIRONMENT"), false);
   assert.equal(result.stdout.includes("litenv diff prod"), false);
 });
@@ -160,6 +161,66 @@ test("get --all reads the key from local and every configured environment", asyn
   assert.match(result.stdout, /ENVIRONMENT\s+VALUE\s+RESULT/);
   assert.match(result.stdout, /dev\s+3000\s+found/);
   assert.match(result.stdout, /prod\s+8080\s+found/);
+});
+
+test("remote mutations run the environment reload command after the file write", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-reload-"));
+  await writeFile(path.join(directory, "litenv.toml"), [
+    "[env.prod]",
+    'host = "prod-host"',
+    'file = "/app/.env"',
+    'reload = "pm2 reload my-app --update-env"',
+    "",
+  ].join("\n"), "utf8");
+
+  const binDirectory = path.join(directory, "bin");
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(binDirectory);
+  const logFile = path.join(directory, "ssh.log");
+  const ssh = path.join(binDirectory, "ssh");
+  await writeFile(ssh, [
+    "#!/usr/bin/env node",
+    'const fs = require("node:fs");',
+    "const command = process.argv[3];",
+    'fs.appendFileSync(process.env.SSH_LOG, `${JSON.stringify(command)}\\n`);',
+    'if (command.startsWith("if [ -e")) process.stdout.write("FOO=old\\n");',
+    "",
+  ].join("\n"), "utf8");
+  await chmod(ssh, 0o755);
+
+  const skipped = await run(["prod", "set", "FOO=new", "--no-example"], directory, {
+    PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+    SSH_LOG: logFile,
+  });
+  assert.equal(skipped.code, 0);
+  assert.equal(skipped.stdout.includes("reload"), false);
+  const skippedCalls = (await readFile(logFile, "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(skippedCalls.length, 2);
+  await writeFile(logFile, "", "utf8");
+
+  const result = await run(["prod", "set", "FOO=new", "--no-example", "--reload"], directory, {
+    PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+    SSH_LOG: logFile,
+  });
+
+  assert.deepEqual(result, {
+    code: 0,
+    stdout: "✓ prod: FOO updated\n○ prod: running reload\n✓ prod: reload complete\n⚠ Not declared in .env.example: FOO\n",
+    stderr: "",
+  });
+  const calls = (await readFile(logFile, "utf8")).trim().split("\n").map(JSON.parse);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2], "pm2 reload my-app --update-env");
+});
+
+test("--reload fails before writing when the selected environment has no reload command", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-missing-reload-"));
+  await writeFile(path.join(directory, ".env"), "FOO=old\n", "utf8");
+
+  const result = await run(["local", "set", "FOO=new", "--reload"], directory);
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /--reload requires a reload command/);
+  assert.equal(await readFile(path.join(directory, ".env"), "utf8"), "FOO=old\n");
 });
 
 test("project config controls local paths, sorting, and strict undeclared checks", async () => {

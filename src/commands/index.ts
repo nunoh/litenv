@@ -19,6 +19,7 @@ export interface CommandContext {
   schemaFile: string;
   io: CommandIO;
   confirm?: (question: string) => Promise<boolean>;
+  reload?: () => Promise<void>;
   undeclared?: "warn" | "error";
   checkInfo?: {
     environment: string;
@@ -30,6 +31,7 @@ export interface CommandContext {
 export interface MutationOptions {
   sort?: boolean;
   example?: "prompt" | "always" | "never";
+  reload?: "prompt" | "always" | "never";
 }
 
 export interface CheckTarget {
@@ -60,6 +62,36 @@ function mark(context: CommandContext, kind: "success" | "info" | "warning" | "e
 
 function keyName(context: CommandContext, key: string): string {
   return paint(key, "strong", context.io.color);
+}
+
+function requireConfiguredReload(context: CommandContext, mode: MutationOptions["reload"]): void {
+  if (mode === "always" && !context.reload) {
+    throw new UsageError("--reload requires a reload command in the selected environment");
+  }
+}
+
+async function reloadAfterWrite(
+  context: CommandContext,
+  mode: MutationOptions["reload"] = "never",
+): Promise<void> {
+  if (mode === "never") return;
+  if (!context.reload) {
+    if (mode === "always") throw new UsageError("--reload requires a reload command in the selected environment");
+    return;
+  }
+  if (mode === "prompt") {
+    if (!context.confirm) return;
+    const target = context.targetName ?? "selected environment";
+    if (!await context.confirm(`Run reload command for ${target}?`)) return;
+  }
+  context.io.out(`${mark(context, "info")} ${statusPrefix(context)}running reload`);
+  try {
+    await context.reload();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new LitenvError(`${statusPrefix(context)}environment file updated, but reload failed: ${message}`);
+  }
+  context.io.out(`${mark(context, "success")} ${statusPrefix(context)}reload complete`);
 }
 
 async function updateExampleIfRequested(
@@ -155,11 +187,13 @@ export async function setCommand(
     if (!isValidKey(key)) throw new UsageError(`Invalid environment variable name: ${key}`);
     return [key, assignment.slice(equals + 1)] as const;
   });
+  requireConfiguredReload(context, options.reload);
   const document = EnvDocument.parse(await context.transport.read());
   for (const [key, value] of parsed) document.set(key, value);
   if (options.sort !== false) document.sortSections();
   await context.transport.write(document.serialize());
   for (const [key] of parsed) context.io.out(`${mark(context, "success")} ${statusPrefix(context)}${keyName(context, key)} updated`);
+  await reloadAfterWrite(context, options.reload);
   await updateExampleIfRequested(context, parsed.map(([key]) => key), options.example ?? "prompt");
   return 0;
 }
@@ -167,9 +201,10 @@ export async function setCommand(
 export async function unsetCommand(
   context: CommandContext,
   keys: string[],
-  options: Pick<MutationOptions, "sort"> = {},
+  options: Pick<MutationOptions, "sort" | "reload"> = {},
 ): Promise<number> {
   requireKeys(keys, "litenv [environment] unset KEY [KEY ...]");
+  requireConfiguredReload(context, options.reload);
   const document = EnvDocument.parse(await context.transport.read());
   let changed = false;
   const results = keys.map((key) => {
@@ -184,6 +219,7 @@ export async function unsetCommand(
   for (const { key, removed } of results) {
     context.io.out(`${mark(context, removed ? "success" : "info")} ${statusPrefix(context)}${keyName(context, key)} ${removed ? "removed" : "not found"}`);
   }
+  if (changed) await reloadAfterWrite(context, options.reload);
   return 0;
 }
 
@@ -330,12 +366,18 @@ export async function checkAllCommand(
   return invalid.length > 0 || failed.length > 0 ? 1 : 0;
 }
 
-export async function sortCommand(context: CommandContext, args: string[]): Promise<number> {
+export async function sortCommand(
+  context: CommandContext,
+  args: string[],
+  options: Pick<MutationOptions, "reload"> = {},
+): Promise<number> {
   if (args.length !== 0) throw new UsageError("Usage: litenv [environment] sort");
+  requireConfiguredReload(context, options.reload);
   const document = EnvDocument.parse(await context.transport.read());
   document.sortSections();
   await context.transport.write(document.serialize());
   context.io.out(`${mark(context, "success")} ${context.targetName ? `${context.targetName} ` : ""}environment sorted`);
+  await reloadAfterWrite(context, options.reload);
   return 0;
 }
 

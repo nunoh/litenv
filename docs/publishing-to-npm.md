@@ -12,9 +12,9 @@ The package is structurally ready to publish:
 - `package.json` exposes the CLI through the `bin` field.
 - `prepack` builds the TypeScript source before packaging.
 - The package contains `dist`, `README.md`, `LICENSE`, and `package.json`.
-- The dry-run package is approximately 31 KB compressed and contains 42 files.
+- The dry-run package is approximately 34 KB compressed and contains 43 files.
 - The CLI has no runtime npm dependencies.
-- All 45 tests pass.
+- All 54 tests pass.
 
 ## Before the first release
 

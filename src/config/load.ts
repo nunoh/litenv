@@ -71,8 +71,15 @@ export function parseConfig(content: string, configPath: string): LitenvConfig {
     if (property?.[1] && property[2]) {
       const key = property[1];
       const rawValue = property[2];
-      if (currentEnvironment && (key === "host" || key === "file")) {
-        partial[currentEnvironment]![key] = parseString(rawValue, configPath, lineNumber);
+      if (currentEnvironment && (key === "host" || key === "file" || key === "reload")) {
+        const value = parseString(rawValue, configPath, lineNumber);
+        if (key === "reload" && value === "") {
+          throw new LitenvError(`${configPath}:${lineNumber}: env.${currentEnvironment}.reload cannot be empty`);
+        }
+        if (key === "reload" && /[\0\r\n]/.test(value)) {
+          throw new LitenvError(`${configPath}:${lineNumber}: env.${currentEnvironment}.reload cannot contain control characters`);
+        }
+        partial[currentEnvironment]![key] = value;
         return;
       }
       if (inProject && (key === "file" || key === "example")) {
@@ -114,7 +121,11 @@ export function parseConfig(content: string, configPath: string): LitenvConfig {
     if (!environment.host || !environment.file) {
       throw new LitenvError(`${configPath}: env.${name} must define both host and file`);
     }
-    environments[name] = { host: environment.host, file: environment.file };
+    environments[name] = {
+      host: environment.host,
+      file: environment.file,
+      ...(environment.reload === undefined ? {} : { reload: environment.reload }),
+    };
   }
 
   return { path: configPath, root: path.dirname(configPath), project, environments };

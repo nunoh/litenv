@@ -69,6 +69,11 @@ Mutation options:
   --no-sort       Preserve the current variable order
   --example       Add missing set keys to the configured example file
   --no-example    Never update the configured example file
+  --reload        Run the configured remote reload without prompting
+
+Remote reloads:
+  Add reload = "command" to an [env.NAME] table. Use --reload to run it.
+  Interactive mutations ask first and default to no.
 
 Exit codes: 0 success, 1 operation/validation failure, 2 invalid usage.`;
 
@@ -102,6 +107,7 @@ interface ParsedArguments {
   example: "prompt" | "always" | "never";
   all: boolean;
   summary: boolean;
+  reload: boolean;
 }
 
 function parseFlags(args: string[]): ParsedArguments {
@@ -111,6 +117,7 @@ function parseFlags(args: string[]): ParsedArguments {
   let example: ParsedArguments["example"] = "prompt";
   let all = false;
   let summary = false;
+  let reload = false;
   const positionals: string[] = [];
   for (const argument of args) {
     if (argument === "--values") values = true;
@@ -121,6 +128,7 @@ function parseFlags(args: string[]): ParsedArguments {
     else if (argument === "--no-example") example = "never";
     else if (argument === "--all") all = true;
     else if (argument === "--summary") summary = true;
+    else if (argument === "--reload") reload = true;
     else if (argument.startsWith("--")) throw new UsageError(`Unknown option: ${argument}`);
     else positionals.push(argument);
   }
@@ -132,6 +140,7 @@ function parseFlags(args: string[]): ParsedArguments {
     example,
     all,
     summary,
+    reload,
   };
 }
 
@@ -155,7 +164,7 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
     return 0;
   }
 
-  const { positionals, values, redact, sort, example, all, summary } = parseFlags(argv);
+  const { positionals, values, redact, sort, example, all, summary, reload } = parseFlags(argv);
   const config = await loadConfig(cwd);
   const projectRoot = config?.root ?? path.resolve(cwd);
   const localFileDisplay = config?.project.file ?? ".env";
@@ -191,6 +200,7 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
   if (command === "diff") {
     if (all) throw new UsageError("--all is not supported by diff");
     if (summary) throw new UsageError("--summary is not supported by diff");
+    if (reload) throw new UsageError("--reload is not supported by diff");
     if (redact) throw new UsageError("--redact is not supported by diff");
     if (sort !== undefined) throw new UsageError(`${sort ? "--sort" : "--no-sort"} is not supported by diff`);
     if (example !== "prompt") throw new UsageError(`${example === "always" ? "--example" : "--no-example"} is not supported by diff`);
@@ -247,6 +257,9 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
   if (example !== "prompt" && command !== "set") throw new UsageError(`${example === "always" ? "--example" : "--no-example"} is not supported by ${command}`);
   if (all && command !== "check" && command !== "get") throw new UsageError(`--all is not supported by ${command}`);
   if (summary && command !== "check") throw new UsageError(`--summary is not supported by ${command}`);
+  if (reload && command !== "set" && command !== "unset" && command !== "sort") {
+    throw new UsageError(`--reload is not supported by ${command}`);
+  }
   if (all && (targetName || explicitLocal)) throw new UsageError("--all cannot be combined with a specific environment");
 
   if (all) {
@@ -319,8 +332,10 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
   if (targetName) {
     const remote = config?.environments[targetName];
     if (!remote) throw new UsageError(`Unknown environment: ${targetName}`);
+    const remoteTransport = new SshTransport(remote.host, remote.file);
+    const reloadCommand = remote.reload;
     context = {
-      transport: new SshTransport(remote.host, remote.file),
+      transport: remoteTransport,
       targetName,
       schemaFile,
       io,
@@ -330,9 +345,17 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
         valuesFile: `${remote.host}:${remote.file}`,
         schemaFile: schemaDisplay,
       },
+      ...(reloadCommand ? { reload: () => remoteTransport.runCommand(reloadCommand) } : {}),
       ...(promptForExample ? { confirm: promptForExample } : {}),
     };
   }
+
+  if (reload && !context.reload) {
+    throw new UsageError("--reload requires a reload command in the selected environment");
+  }
+  const reloadMode: "prompt" | "always" | "never" = reload
+    ? "always"
+    : context.reload && promptForExample ? "prompt" : "never";
 
   if (interactiveTargets) {
     const runArguments = command === "set"
@@ -343,6 +366,7 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
       : [...positionals];
     if (command === "show" && redact) runArguments.push("--redact");
     if (command === "check" && summary) runArguments.push("--summary");
+    if (reload) runArguments.push("--reload");
     if ((command === "set" || command === "unset") && sort !== undefined) runArguments.push(sort ? "--sort" : "--no-sort");
     if (command === "set" && example !== "prompt") runArguments.push(example === "always" ? "--example" : "--no-example");
     showInteractiveRun(io, command, runArguments, interactiveTargets);
@@ -350,12 +374,12 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
 
   switch (command) {
     case "get": return getCommand(context, positionals);
-    case "set": return setCommand(context, positionals, { sort: sort ?? defaultSort, example });
-    case "unset": return unsetCommand(context, positionals, { sort: sort ?? defaultSort });
+    case "set": return setCommand(context, positionals, { sort: sort ?? defaultSort, example, reload: reloadMode });
+    case "unset": return unsetCommand(context, positionals, { sort: sort ?? defaultSort, reload: reloadMode });
     case "keys": return keysCommand(context, positionals);
     case "show": return showCommand(context, positionals, redact && !values);
     case "check": return checkCommand(context, positionals, summary);
-    case "sort": return sortCommand(context, positionals);
+    case "sort": return sortCommand(context, positionals, { reload: reloadMode });
     default: throw new UsageError(`Unknown command: ${command}`);
   }
 }

@@ -1,6 +1,7 @@
 export interface RemoteEnvironment {
   host: string;
   file: string;
+  reload?: string;
 }
 
 export interface ProjectConfig {

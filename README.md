@@ -95,6 +95,7 @@ file = "/srv/my-app/.env"
 [env.prod]
 host = "my-app"
 file = "/srv/my-app/.env"
+reload = "pm2 reload my-app --update-env"
 ```
 
 Then target environments by name:
@@ -116,6 +117,45 @@ Host my-app
 ```
 
 Node.js and `litenv` do not need to be installed remotely.
+
+### Reload after writes
+
+Some applications read `.env` only at process startup. Add a `reload` command to an environment when a file update may need to restart or reload that application:
+
+```toml
+[env.vps]
+host = "app-vps"
+file = "/srv/my-app/.env"
+reload = "pm2 reload my-app --update-env"
+```
+
+Interactive mutations offer to reload, with a safe default of no:
+
+```console
+$ litenv vps set PORT=3000
+✓ vps: PORT updated
+Run reload command for vps? [y/N] y
+○ vps: running reload
+✓ vps: reload complete
+```
+
+Pressing Enter or answering no leaves the updated file in place without reloading. In scripts—or whenever prompting is unwanted—opt in explicitly:
+
+```sh
+litenv vps set PORT=3000 --reload
+litenv vps unset OLD_KEY --reload
+litenv vps sort --reload
+```
+
+Without `--reload`, non-interactive mutations never reload. The prompt is offered after `set`, an `unset` that removed at least one key, and `sort`. It is not offered after reads, checks, diffs, failed writes, or an `unset` that changed nothing.
+
+Using `--reload` with local or with a remote environment that has no configured command fails before the file is touched.
+
+If the file write succeeds but reload fails, litenv returns status `1` and makes the partial result explicit:
+
+```text
+vps: environment file updated, but reload failed: SSH operation failed on app-vps: process not found
+```
 
 ## Check Every Environment
 
@@ -259,6 +299,9 @@ litenv prod set PORT=3000 --sort
 | `--no-example` | Never update `.env.example` |
 | `--sort` | Sort even when `project.sort` is `false` |
 | `--no-sort` | Preserve the current variable order |
+| `--reload` | Run the configured remote reload without prompting |
+
+When the selected remote environment defines `reload`, interactive use asks whether to run it after the file write. Add `--reload` to run it without prompting.
 
 </details>
 
@@ -279,6 +322,8 @@ litenv prod unset DEBUG_TOOL LEGACY_API_KEY
 ```
 
 The file is sorted after a successful removal by default. Use `--no-sort` to preserve its current order.
+
+If the remote environment defines `reload`, interactive use prompts only when at least one key was actually removed. Add `--reload` to opt in non-interactively.
 
 </details>
 
@@ -430,6 +475,8 @@ Sorting is section-aware. Blank lines separate sections, and comments remain wit
 
 `set` and `unset` already sort by default. Use `sort` when an existing file needs a complete cleanup.
 
+Sorting writes the file, so interactive use also offers the selected remote environment's configured reload. Add `--reload` to run it without prompting.
+
 </details>
 
 <details>
@@ -533,6 +580,7 @@ Each `[env.NAME]` table requires:
 | --- | --- |
 | `host` | SSH host or alias passed to the system `ssh` command |
 | `file` | Path to the remote `.env` file; use an absolute path |
+| `reload` | Optional remote shell command offered after successful mutations |
 
 ## CI
 
@@ -575,6 +623,7 @@ npx litenv check --all --summary
 - `show` reveals values unless `--redact` is present.
 - `get` intentionally prints the requested value.
 - Mutation status output never echoes values.
+- A configured `reload` value is executed as a remote shell command. Treat `litenv.toml` as trusted executable configuration before running mutations.
 
 `litenv` does not encrypt `.env` files or replace a secret manager. Protect files, terminal output, shell history, SSH access, and CI logs accordingly.
 

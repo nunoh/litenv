@@ -81,6 +81,88 @@ test("set and unset mutate through the transport without printing values", async
   assert.deepEqual(fixture.out, ["✓ prod: PORT removed", "○ prod: MISSING not found"]);
 });
 
+test("write commands run a configured reload only after an actual write", async () => {
+  const fixture = setup("FOO=old\n", "/unused/.env.example", "prod");
+  let reloads = 0;
+  fixture.context.reload = async () => { reloads += 1; };
+
+  await setCommand(fixture.context, ["FOO=new"], { example: "never", reload: "always" });
+  assert.equal(reloads, 1);
+  assert.deepEqual(fixture.out, [
+    "✓ prod: FOO updated",
+    "○ prod: running reload",
+    "✓ prod: reload complete",
+    "⚠ Not declared in .env.example: FOO",
+  ]);
+
+  fixture.out.length = 0;
+  await unsetCommand(fixture.context, ["MISSING"], { reload: "always" });
+  assert.equal(reloads, 1);
+  assert.deepEqual(fixture.out, ["○ prod: MISSING not found"]);
+
+  fixture.out.length = 0;
+  await unsetCommand(fixture.context, ["FOO"], { reload: "always" });
+  assert.equal(reloads, 2);
+  assert.deepEqual(fixture.out, [
+    "✓ prod: FOO removed",
+    "○ prod: running reload",
+    "✓ prod: reload complete",
+  ]);
+
+  fixture.out.length = 0;
+  await sortCommand(fixture.context, [], { reload: "always" });
+  assert.equal(reloads, 3);
+  assert.deepEqual(fixture.out, [
+    "✓ prod environment sorted",
+    "○ prod: running reload",
+    "✓ prod: reload complete",
+  ]);
+});
+
+test("reload failure clearly reports that the environment file was already updated", async () => {
+  const fixture = setup("FOO=old\n", "/unused/.env.example", "prod");
+  fixture.context.reload = async () => { throw new Error("pm2 reload failed"); };
+
+  await assert.rejects(
+    setCommand(fixture.context, ["FOO=new"], { example: "never", reload: "always" }),
+    /prod: environment file updated, but reload failed: pm2 reload failed/,
+  );
+  assert.equal(fixture.transport.content, "FOO=new\n");
+  assert.deepEqual(fixture.out, [
+    "✓ prod: FOO updated",
+    "○ prod: running reload",
+  ]);
+});
+
+test("forced reload without a configured command fails before writing", async () => {
+  const fixture = setup("FOO=old\n", "/unused/.env.example", "prod");
+  await assert.rejects(
+    setCommand(fixture.context, ["FOO=new"], { example: "never", reload: "always" }),
+    /--reload requires a reload command/,
+  );
+  assert.equal(fixture.transport.content, "FOO=old\n");
+  assert.deepEqual(fixture.out, []);
+});
+
+test("reload prompt defaults to skipping the configured command", async () => {
+  const fixture = setup("FOO=old\n", "/unused/.env.example", "prod");
+  const questions = [];
+  let reloads = 0;
+  fixture.context.reload = async () => { reloads += 1; };
+  fixture.context.confirm = async (question) => {
+    questions.push(question);
+    return false;
+  };
+
+  await setCommand(fixture.context, ["FOO=new"], { example: "never", reload: "prompt" });
+  assert.equal(reloads, 0);
+  assert.deepEqual(questions, ["Run reload command for prod?"]);
+  assert.deepEqual(fixture.out, [
+    "✓ prod: FOO updated",
+    "⚠ Not declared in .env.example: FOO",
+  ]);
+});
+
 test("show displays values by default and redacts with explicit opt-in", async () => {
   const fixture = setup("TOKEN=secret\nPORT=3000\n");
   await showCommand(fixture.context, [], false);
@@ -374,13 +456,27 @@ test("SSH transport streams file contents over stdin, never in the command", asy
   assert.match(calls[1].args[1], /mv -f/);
 });
 
+test("SSH transport runs configured commands on the same host", async () => {
+  const calls = [];
+  const runner = async (args, input) => {
+    calls.push({ args, input });
+    return { stdout: "reloaded\n", stderr: "", code: 0 };
+  };
+  const transport = new SshTransport("app-host", "/srv/app/.env", runner);
+  await transport.runCommand("pm2 reload my-app --update-env");
+  assert.deepEqual(calls, [{
+    args: ["app-host", "pm2 reload my-app --update-env"],
+    input: undefined,
+  }]);
+});
+
 test("configuration parsing and upward discovery find project environments", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "litenv-config-"));
   const nested = path.join(directory, "apps", "web");
   const { mkdir } = await import("node:fs/promises");
   await mkdir(nested, { recursive: true });
   const file = path.join(directory, "litenv.toml");
-  await writeFile(file, '[project]\nfile = ".env.local"\nexample = ".env.sample"\nlocal_name = "workstation"\nsort = false\nundeclared = "error"\n\n[env.prod]\nhost = "my-app"\nfile = "/srv/my-app/.env"\n', "utf8");
+  await writeFile(file, '[project]\nfile = ".env.local"\nexample = ".env.sample"\nlocal_name = "workstation"\nsort = false\nundeclared = "error"\n\n[env.prod]\nhost = "my-app"\nfile = "/srv/my-app/.env"\nreload = "pm2 reload my-app --update-env"\n', "utf8");
   const config = await loadConfig(nested);
   assert.equal(config?.path, file);
   assert.deepEqual(config?.project, {
@@ -390,7 +486,11 @@ test("configuration parsing and upward discovery find project environments", asy
     sort: false,
     undeclared: "error",
   });
-  assert.deepEqual(config?.environments.prod, { host: "my-app", file: "/srv/my-app/.env" });
+  assert.deepEqual(config?.environments.prod, {
+    host: "my-app",
+    file: "/srv/my-app/.env",
+    reload: "pm2 reload my-app --update-env",
+  });
 
   const defaults = parseConfig("[env.stage]\nhost='stage'\nfile='/app/.env' # note\n", file);
   assert.deepEqual(defaults.project, {
@@ -401,4 +501,16 @@ test("configuration parsing and upward discovery find project environments", asy
     undeclared: "warn",
   });
   assert.deepEqual(defaults.environments.stage, { host: "stage", file: "/app/.env" });
+});
+
+test("configuration rejects empty or multiline reload commands", () => {
+  const file = "/project/litenv.toml";
+  assert.throws(
+    () => parseConfig("[env.prod]\nhost='prod'\nfile='/app/.env'\nreload=''\n", file),
+    /env\.prod\.reload cannot be empty/,
+  );
+  assert.throws(
+    () => parseConfig('[env.prod]\nhost="prod"\nfile="/app/.env"\nreload="first\\nsecond"\n', file),
+    /env\.prod\.reload cannot contain control characters/,
+  );
 });

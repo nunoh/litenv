@@ -56,6 +56,10 @@ export class SshTransport implements EnvTransport {
     return this.execute(`if [ -e ${target} ]; then cat -- ${target}; fi`);
   }
 
+  async runCommand(command: string): Promise<void> {
+    await this.execute(command);
+  }
+
   async write(content: string): Promise<void> {
     const target = shellQuote(this.file);
     const script = [
