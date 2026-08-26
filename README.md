@@ -39,7 +39,7 @@ npx litenv check
 
 Node.js 18 or newer is required.
 
-Use `.env.example` as your schema:
+litenv adopts [dotenvx's `.env.example` validation convention](https://github.com/dotenvx/dotenvx#validation): variables are required by default, while the exact `# optional` annotation marks an optional variable. That one example file becomes the schema for every environment:
 
 ```dotenv
 # .env.example
@@ -358,20 +358,20 @@ If the remote environment defines `reload`, interactive use prompts only when at
 </details>
 
 <details>
-<summary><code>keys</code> — print variable names only</summary>
+<summary><code>vars</code> — print variable names only</summary>
 
 ```console
-$ litenv prod keys
+$ litenv prod vars
 DATABASE_URL
 JWT_SECRET
 PORT
 SENTRY_DSN
 ```
 
-`keys` prints one undecorated key per line, making it safe to pipe or redirect:
+`vars` prints one undecorated variable name per line, making it safe to pipe or redirect:
 
 ```sh
-litenv prod keys > prod-keys.txt
+litenv prod vars > prod-vars.txt
 ```
 
 </details>
@@ -401,7 +401,7 @@ PORT=****
 <details>
 <summary><code>check [--summary]</code> — validate one or more environments</summary>
 
-`.env.example` is the schema:
+Following the dotenvx convention, `.env.example` is the schema:
 
 ```dotenv
 DATABASE_URL=
@@ -567,7 +567,7 @@ Omit the environment prefix to open a terminal selector:
 
 | Command | Selection |
 | --- | --- |
-| `get`, `set`, `unset`, `keys`, `show`, `sort` | Exactly one environment |
+| `get`, `set`, `unset`, `vars`, `show`, `sort` | Exactly one environment |
 | `check` | One or more environments |
 | `diff` | Two or three environments |
 
@@ -628,8 +628,8 @@ jobs:
   env-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -642,6 +642,19 @@ For remote checks, configure SSH authentication in the job and run:
 ```sh
 npx litenv check --all --summary
 ```
+
+## What I Could Have Used
+
+These are good tools. I did not build litenv because they are bad; I built it because they solve adjacent problems or introduce a larger operational model than I wanted.
+
+| Tool | Use it when | Why I did not use it for this job |
+| --- | --- | --- |
+| [dotenvx](https://github.com/dotenvx/dotenvx) | You want encrypted `.env` files, runtime injection, expansion, or multiple local file conventions. | It is the closest alternative—and the direct inspiration for litenv's `.env.example` schema. I wanted named local and SSH targets, multi-host checks and diffs, in-place mutation, and optional reload hooks without adopting encryption or key management. |
+| [dotenv-linter](https://github.com/dotenv-linter/dotenv-linter) | You mainly need fast linting, formatting checks, fixes, and diffs for dotenv files. | It focuses on file correctness. litenv treats local and remote environments as operational targets that can be inspected and safely changed. |
+| [direnv](https://direnv.net/) | You want environment variables automatically loaded and unloaded as you move between project directories. | It manages the current shell session rather than a set of named environment files across SSH hosts. |
+| [Infisical](https://infisical.com/docs/documentation/getting-started/introduction) or [Doppler](https://docs.doppler.com/docs/start) | You need centralized storage, access control, auditing, rotation, approvals, or secret distribution. | At that point, a real secrets platform is probably the right answer. litenv intentionally stays with the `.env` files and SSH access you already operate. |
+
+litenv occupies the small space between “edit the file by hand” and “adopt a secrets platform.”
 
 ## File and Secret Safety
 

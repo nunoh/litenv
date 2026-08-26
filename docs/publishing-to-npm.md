@@ -16,7 +16,7 @@ The package is structurally ready to publish:
 - The package contains compiled output, TypeScript source, `README.md`, `CHANGELOG.md`, `LICENSE`, and `package.json`.
 - The dry-run package is approximately 54 KB compressed and contains 60 files.
 - The CLI has no runtime npm dependencies.
-- All 62 tests pass.
+- All 63 tests pass.
 - GitHub Actions tests Node.js 18, 20, and 22 and inspects the package dry run.
 
 ## Before the first release
