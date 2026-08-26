@@ -11,3 +11,4 @@
 - Added hidden terminal input and `--stdin` for values that should not enter shell history.
 - Added stale-write detection for local and remote mutations.
 - Made default sorting preserve the meaning of comments and unknown lines.
+- Renamed `keys` to the more domain-specific `vars` command before the first release.

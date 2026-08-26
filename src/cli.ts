@@ -9,7 +9,7 @@ import {
   diffCommand,
   getAllCommand,
   getCommand,
-  keysCommand,
+  varsCommand,
   setCommand,
   showCommand,
   sortCommand,
@@ -28,7 +28,7 @@ import { SshTransport } from "./transport/ssh.js";
 
 const packageMetadata = createRequire(import.meta.url)("../package.json") as { version: string };
 const VERSION = packageMetadata.version;
-const COMMANDS = new Set(["get", "set", "unset", "keys", "show", "check", "sort", "diff"]);
+const COMMANDS = new Set(["get", "set", "unset", "vars", "show", "check", "sort", "diff"]);
 
 const HELP = `litenv — lightweight .env management, locally and over SSH
 
@@ -51,7 +51,7 @@ Commands:
   get KEY --all              Print the value from every environment
   set KEY[=VALUE] [...]      Set values inline or enter them without echo
   unset KEY [...]            Remove one or more variables
-  keys                       Print variable names only
+  vars                       Print variable names only
   show [--redact]            Show variables and values
   check                      Choose one or more environments to validate
   local check                Validate the local environment explicitly
@@ -427,7 +427,7 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
     case "get": return getCommand(context, commandArguments);
     case "set": return setCommand(context, commandArguments, { sort: sort ?? defaultSort, example, reload: reloadMode });
     case "unset": return unsetCommand(context, commandArguments, { sort: sort ?? defaultSort, reload: reloadMode });
-    case "keys": return keysCommand(context, commandArguments);
+    case "vars": return varsCommand(context, commandArguments);
     case "show": return showCommand(context, commandArguments, redact && !values);
     case "check": return checkCommand(context, commandArguments, summary);
     case "sort": return sortCommand(context, commandArguments, { reload: reloadMode });

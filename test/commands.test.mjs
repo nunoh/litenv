@@ -9,7 +9,7 @@ import {
   diffCommand,
   getAllCommand,
   getCommand,
-  keysCommand,
+  varsCommand,
   setCommand,
   showCommand,
   sortCommand,
@@ -34,12 +34,12 @@ function setup(content = "", schemaFile = "/unused/.env.example", targetName) {
   return { context, transport, out, errors };
 }
 
-test("get and keys produce undecorated script-friendly output", async () => {
+test("get and vars produce undecorated script-friendly output", async () => {
   const fixture = setup("FOO=bar\nPORT=3000\n");
   assert.equal(await getCommand(fixture.context, ["FOO"]), 0);
   assert.deepEqual(fixture.out, ["bar"]);
   fixture.out.length = 0;
-  assert.equal(await keysCommand(fixture.context, []), 0);
+  assert.equal(await varsCommand(fixture.context, []), 0);
   assert.deepEqual(fixture.out, ["FOO", "PORT"]);
 });
 
@@ -242,7 +242,7 @@ test("terminal check output bolds variable names while script output stays plain
   assert.equal(fixture.out.some((line) => line.includes("\u001b[2moptional, missing\u001b[0m")), true);
 
   fixture.out.length = 0;
-  await keysCommand(fixture.context, []);
+  await varsCommand(fixture.context, []);
   assert.deepEqual(fixture.out, ["EXTRA"]);
   fixture.out.length = 0;
   await getCommand(fixture.context, ["EXTRA"]);

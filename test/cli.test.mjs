@@ -75,6 +75,8 @@ test("help explains the optional environment prefix and only documents colon dif
   assert.match(result.stdout, /Colon selectors are required in scripts/);
   assert.match(result.stdout, /--reload\s+Run the configured remote reload without prompting/);
   assert.match(result.stdout, /--stdin\s+Read one set value from stdin/);
+  assert.match(result.stdout, /vars\s+Print variable names only/);
+  assert.equal(result.stdout.includes("keys                       Print variable names only"), false);
   assert.equal(result.stdout.includes("litenv diff ENVIRONMENT ENVIRONMENT"), false);
   assert.equal(result.stdout.includes("litenv diff prod"), false);
 });
@@ -125,6 +127,19 @@ test("other bare environment commands also require an interactive terminal", asy
   assert.equal(result.code, 2);
   assert.match(result.stderr, /Interactive get requires a terminal/);
   assert.match(result.stderr, /litenv local get/);
+});
+
+test("vars is the only command for listing variable names", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-vars-"));
+  await writeFile(path.join(directory, ".env"), "TOKEN=secret\nPORT=3000\n", "utf8");
+  assert.deepEqual(await run(["local", "vars"], directory), {
+    code: 0,
+    stdout: "TOKEN\nPORT\n",
+    stderr: "",
+  });
+  const legacy = await run(["local", "keys"], directory);
+  assert.equal(legacy.code, 2);
+  assert.match(legacy.stderr, /Unknown command or environment: keys/);
 });
 
 test("CLI mutation flags control sorting and example synchronization", async () => {

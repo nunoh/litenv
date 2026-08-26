@@ -226,8 +226,8 @@ export async function unsetCommand(
   return 0;
 }
 
-export async function keysCommand(context: CommandContext, args: string[]): Promise<number> {
-  if (args.length !== 0) throw new UsageError("Usage: litenv [environment] keys");
+export async function varsCommand(context: CommandContext, args: string[]): Promise<number> {
+  if (args.length !== 0) throw new UsageError("Usage: litenv [environment] vars");
   for (const [key] of EnvDocument.parse(await context.transport.read()).entries()) context.io.out(key);
   return 0;
 }
