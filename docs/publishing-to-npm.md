@@ -29,10 +29,10 @@ The project does not need a `main` or `exports` field while it is distributed on
 
 ### 2. Repair the local npm cache
 
-The npm cache at `/Users/developer/.npm` currently contains root-owned files. npm recommended repairing its ownership with:
+The local npm cache currently contains root-owned files. npm recommended repairing its ownership with:
 
 ```sh
-sudo chown -R 501:20 /Users/developer/.npm
+sudo chown -R "$(id -u):$(id -g)" "$HOME/.npm"
 ```
 
 Review the path before running the command. It should target only this user's npm cache.

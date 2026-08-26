@@ -518,7 +518,7 @@ test("configuration parsing and upward discovery find project environments", asy
   const { mkdir } = await import("node:fs/promises");
   await mkdir(nested, { recursive: true });
   const file = path.join(directory, "litenv.toml");
-  await writeFile(file, '[project]\nfile = ".env.local"\nexample = ".env.sample"\nlocal_name = "workstation"\nsort = false\nundeclared = "error"\n\n[env.prod]\nhost = "my-app"\nfile = "/srv/my-app/.env"\nreload = "pm2 reload my-app --update-env"\n', "utf8");
+  await writeFile(file, '[project]\nfile = ".env.local"\nexample = ".env.sample"\nlocal_name = "workstation"\nsort = false\nundeclared = "error"\n\n[env.prod]\nhost = "app-prod"\nfile = "/srv/my-app/.env"\nreload = "pm2 reload my-app --update-env"\n', "utf8");
   const config = await loadConfig(nested);
   assert.equal(config?.path, file);
   assert.deepEqual(config?.project, {
@@ -529,7 +529,7 @@ test("configuration parsing and upward discovery find project environments", asy
     undeclared: "error",
   });
   assert.deepEqual(config?.environments.prod, {
-    host: "my-app",
+    host: "app-prod",
     file: "/srv/my-app/.env",
     reload: "pm2 reload my-app --update-env",
   });
