@@ -2,7 +2,7 @@
   "name": "litenv",
   "version": "0.1.0",
   "description": "Lightweight .env management, locally and over SSH",
-  "author": "Nuno",
+  "author": "Nuno Hespanhol",
   "type": "module",
   "bin": {
     "litenv": "dist/cli.js"

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 2026-08-28
 
 - Added local and SSH-based `.env` management.
 - Added interactive environment selection and explicit script-friendly targets.

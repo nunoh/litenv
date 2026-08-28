@@ -18,18 +18,11 @@ The name is **lite + env**: a lightweight tool for environment files. It also re
 
 ## Quickstart
 
-> `litenv` is currently in prerelease development and has not had its first npm release. Link this checkout to try it now:
-
-```sh
-npm install
-npm link
-litenv --help
-```
-
-After the first npm release, install globally:
+Install it globally:
 
 ```sh
 npm install --global litenv
+litenv --help
 ```
 
 Or install it in one project:
