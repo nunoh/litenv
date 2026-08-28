@@ -1,5 +1,7 @@
 # litenv
 
+[![CI](https://github.com/nunoh/litenv/actions/workflows/ci.yml/badge.svg)](https://github.com/nunoh/litenv/actions/workflows/ci.yml)
+
 > Small, readable `.env` management — locally and over SSH.
 
 - validate local and remote environments against one `.env.example`
