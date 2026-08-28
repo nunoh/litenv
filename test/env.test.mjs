@@ -144,3 +144,14 @@ test("diff reports key presence and equality without losing values", () => {
     same: [["SAME", "yes"]],
   });
 });
+
+test("diff sorts every bucket by key", () => {
+  const result = diffDocuments(
+    EnvDocument.parse("B_LOCAL=1\nA_LOCAL=1\nB_DIFF=one\nA_DIFF=one\nB_SAME=yes\nA_SAME=yes\n"),
+    EnvDocument.parse("B_REMOTE=1\nA_REMOTE=1\nB_DIFF=two\nA_DIFF=two\nB_SAME=yes\nA_SAME=yes\n"),
+  );
+  assert.deepEqual(result.onlyLocal, [["A_LOCAL", "1"], ["B_LOCAL", "1"]]);
+  assert.deepEqual(result.onlyRemote, [["A_REMOTE", "1"], ["B_REMOTE", "1"]]);
+  assert.deepEqual(result.different, [["A_DIFF", "one", "two"], ["B_DIFF", "one", "two"]]);
+  assert.deepEqual(result.same, [["A_SAME", "yes"], ["B_SAME", "yes"]]);
+});

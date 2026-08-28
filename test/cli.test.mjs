@@ -354,3 +354,32 @@ test("paired target syntax compares two configured environments", async () => {
   assert.equal(legacy.code, 2);
   assert.match(legacy.stderr, /TARGET:TARGET/);
 });
+
+test("--stdin is rejected by commands other than set", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-stdin-command-"));
+  const result = await run(["local", "get", "FOO", "--stdin"], directory);
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /--stdin is not supported by get/);
+});
+
+test("--stdin requires exactly one bare variable name", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-stdin-arity-"));
+  const many = await run(["local", "set", "ONE", "TWO", "--stdin"], directory);
+  assert.equal(many.code, 2);
+  assert.match(many.stderr, /--stdin requires exactly one variable name/);
+
+  const assignment = await run(["local", "set", "TOKEN=value", "--stdin"], directory);
+  assert.equal(assignment.code, 2);
+  assert.match(assignment.stderr, /--stdin requires exactly one variable name/);
+
+  const badKey = await runWithInput(["local", "set", "NOT-A-KEY", "--stdin"], directory, "value\n");
+  assert.equal(badKey.code, 2);
+  assert.match(badKey.stderr, /Invalid environment variable name: NOT-A-KEY/);
+});
+
+test("a diff selector must name two or three targets", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-diff-selector-"));
+  const result = await run(["a:b:c:d", "diff"], directory);
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /A diff selector must contain two or three targets/);
+});

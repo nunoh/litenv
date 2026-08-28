@@ -556,3 +556,12 @@ test("configuration rejects empty or multiline reload commands", () => {
     /env\.prod\.reload cannot contain control characters/,
   );
 });
+
+test("local transport surfaces stat failures other than a missing file", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-local-stat-"));
+  const blocker = path.join(directory, "blocker");
+  await writeFile(blocker, "not a directory\n", "utf8");
+  const transport = new LocalTransport(path.join(blocker, ".env"));
+
+  await assert.rejects(transport.write("FOO=bar\n"), (error) => error.code === "ENOTDIR");
+});
