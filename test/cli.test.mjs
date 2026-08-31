@@ -9,9 +9,15 @@ import test from "node:test";
 const execute = promisify(execFile);
 const cli = path.resolve("dist/cli.js");
 
+function plainEnvironment(overrides = {}) {
+  const environment = { ...process.env, ...overrides, NO_COLOR: "1" };
+  delete environment.FORCE_COLOR;
+  return environment;
+}
+
 async function run(args, cwd, env = {}) {
   try {
-    const result = await execute(process.execPath, [cli, ...args], { cwd, env: { ...process.env, ...env } });
+    const result = await execute(process.execPath, [cli, ...args], { cwd, env: plainEnvironment(env) });
     return { code: 0, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
     return { code: error.code, stdout: error.stdout, stderr: error.stderr };
@@ -22,7 +28,7 @@ async function runWithInput(args, cwd, input, env = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cli, ...args], {
       cwd,
-      env: { ...process.env, ...env },
+      env: plainEnvironment(env),
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
