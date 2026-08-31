@@ -1,5 +1,6 @@
 # litenv
 
+[![npm version](https://img.shields.io/npm/v/litenv.svg)](https://www.npmjs.com/package/litenv)
 [![CI](https://github.com/nunoh/litenv/actions/workflows/ci.yml/badge.svg)](https://github.com/nunoh/litenv/actions/workflows/ci.yml)
 
 > Small, readable `.env` management — locally and over SSH.
@@ -16,13 +17,13 @@ The name is **lite + env**: a lightweight tool for environment files. It also re
 
 `litenv` is deliberately not a secrets manager. It does not provide encrypted storage or secret distribution. It gives developers running conventional apps on local machines and SSH-accessible servers a careful CLI for the `.env` files they already use.
 
-## Quickstart
+## Install
 
 Install it globally:
 
 ```sh
-npm install --global litenv
-litenv --help
+npm i -g litenv
+litenv --version
 ```
 
 Or install it in one project:
@@ -679,20 +680,33 @@ Set `NO_COLOR=1` to disable terminal styling. Output is automatically plain when
 
 ## Development
 
+Install dependencies and run the complete test suite:
+
 ```sh
 npm install
 npm test
 npm run cloc
 ```
 
-Link the development build globally:
+To use your checkout as the global `litenv` command, build it and create an npm link:
 
 ```sh
+npm run build
 npm link
-litenv --help
+litenv --version
 ```
 
-See [Publishing litenv to npm](docs/publishing-to-npm.md) for the release checklist.
+The link points at this checkout, while the executable points at `dist/cli.js`. Rebuild after source changes, or keep TypeScript compiling while you work:
+
+```sh
+npm run build -- --watch
+```
+
+Remove the global development link with:
+
+```sh
+npm unlink --global litenv
+```
 
 ## License
 
