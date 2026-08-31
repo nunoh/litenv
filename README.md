@@ -1,6 +1,6 @@
 # litenv
 
-[![npm version](https://img.shields.io/npm/v/litenv.svg)](https://www.npmjs.com/package/litenv)
+[![npm version](https://img.shields.io/npm/v/use-litenv.svg)](https://www.npmjs.com/package/use-litenv)
 [![CI](https://github.com/nunoh/litenv/actions/workflows/ci.yml/badge.svg)](https://github.com/nunoh/litenv/actions/workflows/ci.yml)
 
 > Small, readable `.env` management — locally and over SSH.
@@ -22,7 +22,7 @@ The name is **lite + env**: a lightweight tool for environment files. It also re
 Install it globally:
 
 ```sh
-npm i -g litenv
+npm i -g use-litenv
 litenv --version
 ```
 

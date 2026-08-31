@@ -1,5 +1,5 @@
 {
-  "name": "litenv",
+  "name": "use-litenv",
   "version": "0.1.0",
   "description": "Lightweight .env management, locally and over SSH",
   "author": "Nuno Hespanhol",
