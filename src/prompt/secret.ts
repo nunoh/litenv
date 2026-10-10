@@ -54,10 +54,10 @@ export function promptSecret(
       }
     };
 
-    output.write(`${question}: `);
     if (input.setRawMode) input.setRawMode(true);
     input.setEncoding("utf8");
-    input.resume();
     input.on("data", onData);
+    input.resume();
+    output.write(`${question}: `);
   });
 }
