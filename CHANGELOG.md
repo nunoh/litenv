@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-10-10
 
 - Fixed multiline values being truncated after updating a single-quoted variable.
 - Disabled terminal echo before showing secret prompts to prevent fast input from appearing on screen.
