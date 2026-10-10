@@ -155,3 +155,49 @@ test("diff sorts every bucket by key", () => {
   assert.deepEqual(result.different, [["A_DIFF", "one", "two"], ["B_DIFF", "one", "two"]]);
   assert.deepEqual(result.same, [["A_SAME", "yes"], ["B_SAME", "yes"]]);
 });
+
+test("quoted mutations round-trip escape characters without interpolation", () => {
+  const values = ["", "'single'", '"double"', "\\", "line\nnext\r\ttab", " padded ", "#hash", "🔐é", "$(touch NEVER_RUN)"];
+  for (const quote of ["'", '"', ""]) {
+    for (const value of values) {
+      const document = EnvDocument.parse(`TOKEN=${quote}old${quote} # keep\r\n`);
+      document.set("TOKEN", value);
+      const serialized = document.serialize();
+      assert.ok(serialized.endsWith(" # keep\r\n"), serialized);
+      assert.equal(EnvDocument.parse(serialized).get("TOKEN"), value);
+    }
+  }
+  const escaped = EnvDocument.parse('TOKEN="line\\nnext\\r\\ttab\\\\path\\\"quote"\n');
+  assert.equal(escaped.get("TOKEN"), 'line\nnext\r\ttab\\path"quote');
+});
+
+test("duplicate mutations preserve last-value semantics and reject invalid keys without changes", () => {
+  const original = "TOKEN=first\nTOKEN=last\n";
+  const document = EnvDocument.parse(original);
+  assert.throws(() => document.set("NOT-A-KEY", "secret"), /Invalid environment variable name/);
+  assert.equal(document.serialize(), original);
+  document.set("TOKEN", "replacement");
+  assert.equal(document.serialize(), "TOKEN=first\nTOKEN=replacement\n");
+  assert.equal(EnvDocument.parse(document.serialize()).get("TOKEN"), "replacement");
+});
+
+test("schema checks distinguish missing keys from present empty values and deduplicate declarations", () => {
+  const example = EnvDocument.parse("# Required\nTOKEN=\nTOKEN= # optional\nPORT=\nTRACE= # Optional\n");
+  const actual = EnvDocument.parse("TOKEN=\nEXTRA=one\nEXTRA=two\n");
+  const result = validate(actual, example);
+  assert.deepEqual(readSchema(example), [
+    { key: "TOKEN", optional: false }, { key: "PORT", optional: false }, { key: "TRACE", optional: true },
+  ]);
+  assert.deepEqual(result.missingRequired, ["PORT"]);
+  assert.deepEqual(result.extras, ["EXTRA"]);
+  assert.deepEqual(result.entries.map(({ key, present }) => [key, present]), [["TOKEN", true], ["PORT", false], ["TRACE", false]]);
+});
+
+test("unterminated quoted lines survive parsing and sorting without losing content", () => {
+  const content = 'TOKEN="unterminated\\\"quote\nOTHER=ok\n';
+  const document = EnvDocument.parse(content);
+  assert.equal(document.serialize(), content);
+  assert.equal(document.get("TOKEN"), '"unterminated\\\"quote');
+  document.sortSections();
+  assert.equal(document.serialize(), 'OTHER=ok\nTOKEN="unterminated\\\"quote\n');
+});

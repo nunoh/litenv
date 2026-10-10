@@ -109,7 +109,7 @@ function parseLine(line: string): EnvNode {
 }
 
 function encodeValue(value: string, quote: QuoteStyle): { encoded: string; quote: QuoteStyle } {
-  if (quote === "single" && !value.includes("'")) return { encoded: `'${value}'`, quote };
+  if (quote === "single" && !/['\n\r]/.test(value)) return { encoded: `'${value}'`, quote };
   if (quote === "double") {
     return {
       encoded: `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")}"`,
