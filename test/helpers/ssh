@@ -1,0 +1,4 @@
+#!/bin/sh
+# SSH test stand-in: run the exact remote command against isolated local files.
+shift
+exec /bin/sh -c "$1"
