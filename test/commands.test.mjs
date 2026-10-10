@@ -565,3 +565,61 @@ test("local transport surfaces stat failures other than a missing file", async (
 
   await assert.rejects(transport.write("FOO=bar\n"), (error) => error.code === "ENOTDIR");
 });
+
+test("invalid keys abort an entire batch before writing or reloading", async () => {
+  const fixture = setup("TOKEN=original\nPORT=3000\n", "/unused", "prod");
+  let reloads = 0;
+  fixture.context.reload = async () => { reloads += 1; };
+  await assert.rejects(setCommand(fixture.context, ["TOKEN=new-secret", "NOT-A-KEY=value"], { reload: "always" }), /Invalid environment variable name/);
+  await assert.rejects(unsetCommand(fixture.context, ["TOKEN", "NOT-A-KEY"], { reload: "always" }), /Invalid environment variable name/);
+  assert.equal(fixture.transport.content, "TOKEN=original\nPORT=3000\n");
+  assert.equal(reloads, 0);
+  assert.deepEqual(fixture.out, []);
+});
+
+test("failed environment writes never report success, reload, or update the schema", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-failed-write-"));
+  const schemaFile = path.join(directory, ".env.example");
+  await writeFile(schemaFile, "PORT=\n");
+  const fixture = setup("PORT=3000\n", schemaFile, "prod");
+  fixture.transport.write = async () => { throw new Error("write denied"); };
+  fixture.context.reload = async () => { throw new Error("must not reload"); };
+  await assert.rejects(setCommand(fixture.context, ["TOKEN=new-secret"], { example: "always", reload: "always" }), /write denied/);
+  assert.equal(fixture.transport.content, "PORT=3000\n");
+  assert.deepEqual(fixture.out, []);
+  assert.equal(await readFile(schemaFile, "utf8"), "PORT=\n");
+});
+
+test("schema synchronization preserves an edit made while awaiting confirmation", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-schema-stale-"));
+  const schemaFile = path.join(directory, ".env.example");
+  await writeFile(schemaFile, "PORT=\n");
+  const fixture = setup("PORT=3000\n", schemaFile);
+  fixture.context.confirm = async () => {
+    await writeFile(schemaFile, "PORT=\nOTHER_WRITER=\n");
+    return true;
+  };
+  await assert.rejects(setCommand(fixture.context, ["TOKEN=new-secret"]), /changed since it was read/);
+  assert.equal(await readFile(schemaFile, "utf8"), "PORT=\nOTHER_WRITER=\n");
+  assert.equal(fixture.transport.content, "PORT=3000\nTOKEN=new-secret\n");
+  assert.doesNotMatch(fixture.out.join("\n"), /new-secret|\.env.example updated/);
+});
+
+test("unsafe or malformed config fails before an environment can be used", () => {
+  for (const [content, diagnostic] of [
+    ["[env.local]\nhost='box'\nfile='/app/.env'", /env.local is reserved/],
+    ["[env.prod]\nhost='box'", /must define both host and file/],
+    ["[project]\nfile=''", /project.file cannot be empty/],
+    ["[project]\nexample=''", /project.example cannot be empty/],
+    ["[project]\nlocal_name='bad:name'", /project.local_name must contain/],
+    ["[project]\nsort='yes'", /project.sort must be true or false/],
+    ["[project]\nundeclared='ignore'", /project.undeclared must be/],
+    ['[project]\nfile="bad\\q"', /expected a quoted string/],
+    ["[project]\nfile=unquoted", /expected a quoted string/],
+    ["[project]\nunknown='value'", /unsupported configuration/],
+  ]) {
+    assert.throws(() => parseConfig(content, "/project/litenv.toml"), diagnostic);
+  }
+  const valid = parseConfig('[env.prod]\nhost="box#one"\nfile="/app/\\\"quoted\\\"/.env" # trailing comment\n', "/project/litenv.toml");
+  assert.deepEqual(valid.environments.prod, { host: "box#one", file: '/app/"quoted"/.env' });
+});

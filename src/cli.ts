@@ -9,6 +9,7 @@ import {
   diffCommand,
   getAllCommand,
   getCommand,
+  listCommand,
   varsCommand,
   setCommand,
   showCommand,
@@ -17,6 +18,12 @@ import {
   type CommandContext,
   type CommandIO,
 } from "./commands/index.js";
+import {
+  completionScript,
+  completionSetup,
+  offerZshCompletion,
+  type CompletionOutput,
+} from "./completion.js";
 import { loadConfig } from "./config/load.js";
 import { LitenvError, UsageError } from "./errors.js";
 import { isValidKey } from "./env/document.js";
@@ -28,12 +35,15 @@ import { SshTransport } from "./transport/ssh.js";
 
 const packageMetadata = createRequire(import.meta.url)("../package.json") as { version: string };
 const VERSION = packageMetadata.version;
-const COMMANDS = new Set(["get", "set", "unset", "vars", "show", "check", "sort", "diff"]);
+const COMMANDS = new Set(["get", "set", "unset", "vars", "show", "check", "sort", "diff", "list", "completion"]);
 
 const HELP = `litenv — lightweight .env management, locally and over SSH
 
 Usage:
   litenv [environment] <command> [arguments] [options]
+  litenv list [--names]
+  litenv completion zsh
+  litenv completion install|uninstall [zsh]
   litenv diff
   litenv <target>:<target>[:<target>] diff [--values]
 
@@ -47,6 +57,10 @@ Environment selection:
   litenv prod get PORT       Remote environment "prod"
 
 Commands:
+  list [--names]             List local and configured remote environments
+  completion zsh             Generate a Zsh completion script
+  completion install [zsh]   Enable Zsh completion in the shell startup file
+  completion uninstall [zsh] Remove Zsh completion from the shell startup file
   get KEY                    Print one raw value
   get KEY --all              Print the value from every environment
   set KEY[=VALUE] [...]      Set values inline or enter them without echo
@@ -114,6 +128,7 @@ interface ParsedArguments {
   summary: boolean;
   reload: boolean;
   stdin: boolean;
+  names: boolean;
 }
 
 function parseFlags(args: string[]): ParsedArguments {
@@ -125,6 +140,7 @@ function parseFlags(args: string[]): ParsedArguments {
   let summary = false;
   let reload = false;
   let stdin = false;
+  let names = false;
   const positionals: string[] = [];
   for (const argument of args) {
     if (argument === "--values") values = true;
@@ -137,6 +153,7 @@ function parseFlags(args: string[]): ParsedArguments {
     else if (argument === "--summary") summary = true;
     else if (argument === "--reload") reload = true;
     else if (argument === "--stdin") stdin = true;
+    else if (argument === "--names") names = true;
     else if (argument.startsWith("--")) throw new UsageError(`Unknown option: ${argument}`);
     else positionals.push(argument);
   }
@@ -150,6 +167,7 @@ function parseFlags(args: string[]): ParsedArguments {
     summary,
     reload,
     stdin,
+    names,
   };
 }
 
@@ -200,6 +218,21 @@ async function resolveSetArguments(arguments_: string[], stdin: boolean): Promis
   return resolved;
 }
 
+async function confirmDefaultYes(question: string): Promise<boolean> {
+  const prompt = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = await prompt.question(`${question} [Y/n] `);
+    return !/^(n|no)$/i.test(answer.trim());
+  } finally {
+    prompt.close();
+  }
+}
+
+function stderrOutput(): CompletionOutput {
+  const color = process.env.NO_COLOR === undefined && (process.env.FORCE_COLOR !== undefined || process.stderr.isTTY === true);
+  return { write(text) { process.stderr.write(text); }, color };
+}
+
 export async function run(argv: string[], cwd = process.cwd(), io = defaultIO()): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
     io.out(HELP);
@@ -210,7 +243,7 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
     return 0;
   }
 
-  const { positionals, values, redact, sort, example, all, summary, reload, stdin } = parseFlags(argv);
+  const { positionals, values, redact, sort, example, all, summary, reload, stdin, names } = parseFlags(argv);
   const config = await loadConfig(cwd);
   const projectRoot = config?.root ?? path.resolve(cwd);
   const localFileDisplay = config?.project.file ?? ".env";
@@ -234,7 +267,11 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
   } else if (positionals[0] === "local") {
     explicitLocal = true;
     positionals.shift();
-  } else if (positionals[0] && config?.environments[positionals[0]]) {
+  } else if (
+    positionals[0]
+    && config?.environments[positionals[0]]
+    && !(positionals.length === 1 && COMMANDS.has(positionals[0]))
+  ) {
     targetName = positionals.shift();
   }
 
@@ -242,6 +279,50 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
   if (!command) throw new UsageError(HELP);
   if (!COMMANDS.has(command)) throw new UsageError(`Unknown command or environment: ${command}`);
   if (diffSelector && command !== "diff") throw new UsageError("A multi-environment target can only be used with diff");
+
+  if (command === "completion") {
+    const usage = "Usage: litenv completion zsh | litenv completion install|uninstall [zsh]";
+    if (targetName || explicitLocal || diffSelector) throw new UsageError(usage);
+    if (values || redact || sort !== undefined || example !== "prompt" || all || summary || reload || stdin || names) {
+      throw new UsageError(usage);
+    }
+    const action = positionals[0];
+    if (action === "install" || action === "uninstall") {
+      if (positionals.length > 2 || (positionals.length === 2 && positionals[1] !== "zsh")) {
+        throw new UsageError(usage);
+      }
+      return completionSetup({ write(text) { io.out(text.replace(/\n$/, "")); }, color: io.color === true }, action);
+    }
+    if (positionals.length !== 1 || action !== "zsh") throw new UsageError(usage);
+    io.out(completionScript("zsh").trimEnd());
+    return 0;
+  }
+
+  if (command === "list") {
+    if (targetName || explicitLocal || diffSelector || positionals.length !== 0) {
+      throw new UsageError("Usage: litenv list [--names]");
+    }
+    if (values) throw new UsageError("--values is not supported by list");
+    if (redact) throw new UsageError("--redact is not supported by list");
+    if (sort !== undefined) throw new UsageError(`${sort ? "--sort" : "--no-sort"} is not supported by list`);
+    if (example !== "prompt") throw new UsageError(`${example === "always" ? "--example" : "--no-example"} is not supported by list`);
+    if (all) throw new UsageError("--all is not supported by list");
+    if (summary) throw new UsageError("--summary is not supported by list");
+    if (reload) throw new UsageError("--reload is not supported by list");
+    if (stdin) throw new UsageError("--stdin is not supported by list");
+    return listCommand(io, [
+      { name: localName, selector: "local", type: "local", file: localFileDisplay },
+      ...Object.entries(config?.environments ?? {}).map(([name, environment]) => ({
+        name,
+        selector: name,
+        type: "remote" as const,
+        host: environment.host,
+        file: environment.file,
+      })),
+    ], names);
+  }
+
+  if (names) throw new UsageError(`--names is not supported by ${command}`);
 
   if (command === "diff") {
     if (all) throw new UsageError("--all is not supported by diff");
@@ -436,8 +517,13 @@ export async function run(argv: string[], cwd = process.cwd(), io = defaultIO())
 }
 
 export async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
   try {
-    process.exitCode = await run(process.argv.slice(2));
+    const code = await run(argv);
+    process.exitCode = code;
+    if (code === 0 && !argv.includes("completion") && process.stdin.isTTY && process.stderr.isTTY) {
+      await offerZshCompletion(stderrOutput(), confirmDefaultYes);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const color = process.env.NO_COLOR === undefined && (process.env.FORCE_COLOR !== undefined || process.stderr.isTTY === true);

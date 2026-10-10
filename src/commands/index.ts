@@ -45,6 +45,14 @@ export interface GetTarget {
   transport: EnvTransport;
 }
 
+export interface ListedEnvironment {
+  name: string;
+  selector: string;
+  type: "local" | "remote";
+  host?: string;
+  file: string;
+}
+
 function requireKeys(keys: string[], usage: string): void {
   if (keys.length === 0) throw new UsageError(`Usage: ${usage}`);
   for (const key of keys) {
@@ -131,6 +139,34 @@ export async function getCommand(context: CommandContext, args: string[]): Promi
   const value = EnvDocument.parse(await context.transport.read()).get(key);
   if (value === undefined) throw new LitenvError(`${key} not found`);
   context.io.out(value);
+  return 0;
+}
+
+export function listCommand(io: CommandIO, environments: ListedEnvironment[], namesOnly = false): number {
+  if (namesOnly) {
+    for (const environment of environments) io.out(environment.selector);
+    return 0;
+  }
+
+  const headers = ["ENVIRONMENT", "TYPE", "HOST", "FILE"];
+  const rows = environments.map((environment) => [
+    environment.type === "local" ? `${environment.name} (local)` : environment.name,
+    environment.type,
+    environment.host ?? "—",
+    environment.file,
+  ]);
+  const widths = headers.map((header, column) => Math.max(
+    textWidth(header),
+    ...rows.map((row) => textWidth(row[column] ?? "")),
+  ));
+  const renderRow = (row: string[], body = false): string => row.map((cell, column) => {
+    const padded = padCell(cell, widths[column] ?? 0);
+    return body && column === 0 ? paint(padded, "strong", io.color) : padded;
+  }).join("  ").trimEnd();
+
+  io.out(paint(renderRow(headers), "heading", io.color));
+  io.out(paint(widths.map((width) => "─".repeat(width)).join("  "), "dim", io.color));
+  for (const row of rows) io.out(renderRow(row, true));
   return 0;
 }
 

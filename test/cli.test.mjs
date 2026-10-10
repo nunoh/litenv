@@ -81,10 +81,145 @@ test("help explains the optional environment prefix and only documents colon dif
   assert.match(result.stdout, /Colon selectors are required in scripts/);
   assert.match(result.stdout, /--reload\s+Run the configured remote reload without prompting/);
   assert.match(result.stdout, /--stdin\s+Read one set value from stdin/);
+  assert.match(result.stdout, /list \[--names]\s+List local and configured remote environments/);
+  assert.match(result.stdout, /completion zsh\s+Generate a Zsh completion script/);
+  assert.match(result.stdout, /completion install \[zsh]\s+Enable Zsh completion in the shell startup file/);
   assert.match(result.stdout, /vars\s+Print variable names only/);
   assert.equal(result.stdout.includes("keys                       Print variable names only"), false);
   assert.equal(result.stdout.includes("litenv diff ENVIRONMENT ENVIRONMENT"), false);
   assert.equal(result.stdout.includes("litenv diff prod"), false);
+});
+
+test("completion zsh generates a valid dynamic completion script", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-completion-"));
+  const result = await run(["completion", "zsh"], directory);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.match(result.stdout, /^#compdef litenv\n/);
+  assert.match(result.stdout, /litenv list --names/);
+  assert.match(result.stdout, /_describe -t environments 'environment' environments/);
+  assert.match(result.stdout, /zstyle ':completion:\*:\*:litenv:\*' group-name ''/);
+  assert.match(result.stdout, /zstyle ':completion:\*:\*:litenv:\*:descriptions' format '%B%d%b'/);
+  assert.match(result.stdout, /compdef _litenv litenv/);
+  assert.equal(result.stdout.includes(" ssh "), false);
+
+  const script = path.join(directory, "_litenv");
+  await writeFile(script, result.stdout, "utf8");
+  await execute("zsh", ["-n", script]);
+
+  const unsupported = await run(["completion", "bash"], directory);
+  assert.equal(unsupported.code, 2);
+  assert.match(unsupported.stderr, /^Usage: litenv completion zsh \| litenv completion install\|uninstall \[zsh]\n$/);
+});
+
+test("completion install and uninstall edit the Zsh startup file idempotently", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-completion-install-"));
+  const home = path.join(directory, "home");
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(home, { recursive: true });
+  const zshrc = path.join(home, ".zshrc");
+  await writeFile(zshrc, "export A=1\n", "utf8");
+  const environment = { HOME: home, ZDOTDIR: "", XDG_CONFIG_HOME: path.join(home, ".config") };
+
+  const installed = await run(["completion", "install"], directory, environment);
+  assert.equal(installed.code, 0);
+  assert.equal(installed.stderr, "");
+  assert.match(installed.stdout, /^✓ Zsh completion enabled in ~\/\.zshrc$/m);
+  assert.equal(await readFile(zshrc, "utf8"), [
+    "export A=1",
+    "",
+    "# >>> litenv completion >>>",
+    'eval "$(litenv completion zsh)"',
+    "# <<< litenv completion <<<",
+    "",
+  ].join("\n"));
+
+  const again = await run(["completion", "install", "zsh"], directory, environment);
+  assert.equal(again.code, 0);
+  assert.match(again.stdout, /^○ Zsh completion is already enabled in ~\/\.zshrc$/m);
+  assert.equal((await readFile(zshrc, "utf8")).match(/litenv completion zsh/g).length, 1);
+
+  const removed = await run(["completion", "uninstall"], directory, environment);
+  assert.equal(removed.code, 0);
+  assert.match(removed.stdout, /^✓ Zsh completion removed from ~\/\.zshrc$/m);
+  assert.equal(await readFile(zshrc, "utf8"), "export A=1\n");
+
+  const removedAgain = await run(["completion", "uninstall"], directory, environment);
+  assert.equal(removedAgain.code, 0);
+  assert.match(removedAgain.stdout, /^○ Zsh completion is not enabled in ~\/\.zshrc$/m);
+
+  const invalid = await run(["completion", "install", "bash"], directory, environment);
+  assert.equal(invalid.code, 2);
+  assert.match(invalid.stderr, /Usage: litenv completion zsh \| litenv completion install\|uninstall \[zsh]/);
+});
+
+test("list shows local and configured remote environments without connecting", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-list-"));
+  await writeFile(path.join(directory, "litenv.toml"), [
+    "[project]",
+    'file = "config/.env"',
+    'local_name = "workstation"',
+    "",
+    "[env.staging]",
+    'host = "stage-box"',
+    'file = "/srv/app/.env"',
+    "",
+    "[env.prod]",
+    'host = "prod-box"',
+    'file = "/srv/app/.env"',
+    "",
+  ].join("\n"), "utf8");
+
+  const result = await run(["list"], directory);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.match(result.stdout, /^ENVIRONMENT\s+TYPE\s+HOST\s+FILE$/m);
+  assert.match(result.stdout, /^workstation \(local\)\s+local\s+—\s+config\/\.env$/m);
+  assert.match(result.stdout, /^staging\s+remote\s+stage-box\s+\/srv\/app\/\.env$/m);
+  assert.match(result.stdout, /^prod\s+remote\s+prod-box\s+\/srv\/app\/\.env$/m);
+  assert.ok(result.stdout.indexOf("staging") < result.stdout.indexOf("prod"));
+});
+
+test("list --names prints usable target selectors in configuration order", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-list-names-"));
+  await writeFile(path.join(directory, "litenv.toml"), [
+    "[project]",
+    'local_name = "workstation"',
+    "[env.staging]",
+    'host = "stage-box"',
+    'file = "/srv/app/.env"',
+    "[env.prod]",
+    'host = "prod-box"',
+    'file = "/srv/app/.env"',
+  ].join("\n"), "utf8");
+
+  assert.deepEqual(await run(["list", "--names"], directory), {
+    code: 0,
+    stdout: "local\nstaging\nprod\n",
+    stderr: "",
+  });
+});
+
+test("list works without a configuration file and rejects target-specific syntax", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "litenv-list-local-"));
+  assert.deepEqual(await run(["list"], directory), {
+    code: 0,
+    stdout: [
+      "ENVIRONMENT  TYPE   HOST  FILE",
+      "───────────  ─────  ────  ────",
+      "dev (local)  local  —     .env",
+      "",
+    ].join("\n"),
+    stderr: "",
+  });
+
+  const targeted = await run(["local", "list"], directory);
+  assert.equal(targeted.code, 2);
+  assert.match(targeted.stderr, /Usage: litenv list \[--names]/);
+
+  const unsupported = await run(["list", "--all"], directory);
+  assert.equal(unsupported.code, 2);
+  assert.match(unsupported.stderr, /--all is not supported by list/);
 });
 
 test("--version is read from package metadata", async () => {
