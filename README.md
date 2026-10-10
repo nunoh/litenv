@@ -35,6 +35,30 @@ npx litenv check
 
 Node.js 18 or newer is required.
 
+### Zsh completion
+
+The first successful interactive run in Zsh asks once whether to enable completion. Answer yes and litenv adds a marked block to your `~/.zshrc`. Answer no and litenv never asks again.
+
+You can also do it explicitly at any time:
+
+```console
+$ litenv completion install
+✓ Zsh completion enabled in ~/.zshrc
+Open a new shell or run `exec zsh` to use it.
+```
+
+`litenv completion uninstall` removes the block again. To manage the startup file yourself, add the `eval` line manually instead:
+
+```zsh
+autoload -Uz compinit
+compinit
+eval "$(litenv completion zsh)"
+```
+
+If a shell framework already initializes completion, only the `eval` line is needed.
+
+`litenv <Tab>` lists environments and commands as two labelled groups, with environments first. It suggests `local`, environments from the nearest `litenv.toml`, and commands. After an explicit target, `litenv prod <Tab>` suggests target-specific commands. Flag suggestions are command-aware. Completion reads local configuration only and never connects over SSH.
+
 litenv adopts [dotenvx's `.env.example` validation convention](https://github.com/dotenvx/dotenvx#validation): variables are required by default, while the exact `# optional` annotation marks an optional variable. That one example file becomes the schema for every environment:
 
 ```dotenv
@@ -222,6 +246,33 @@ An empty target means local, so `:prod` compares local with `prod`. Add `--value
 ## Commands
 
 Every litenv command is listed below. Expand one for syntax, examples, output, flags, and scripting behavior.
+
+<details>
+<summary><code>list [--names]</code> — list available environments</summary>
+
+Show the local environment and every remote environment from `litenv.toml`:
+
+```console
+$ litenv list
+ENVIRONMENT  TYPE    HOST            FILE
+───────────  ──────  ──────────────  ────────────────
+dev (local)  local   —               .env
+staging      remote  my-app-staging  /srv/my-app/.env
+prod         remote  my-app          /srv/my-app/.env
+```
+
+This command reads configuration only and does not connect over SSH. Remote environments retain their `litenv.toml` order.
+
+Use `--names` for one usable target selector per line. The local selector is `local`, regardless of its configured display name:
+
+```console
+$ litenv list --names
+local
+staging
+prod
+```
+
+</details>
 
 <details>
 <summary><code>get KEY</code> — print one raw value</summary>
@@ -546,6 +597,35 @@ Newlines, tabs, backslashes, and control characters are escaped to keep every va
 </details>
 
 <details>
+<summary><code>completion</code> — dynamic Zsh completion</summary>
+
+`litenv completion zsh` prints the completion function. Initialize Zsh completion and evaluate it:
+
+```zsh
+autoload -Uz compinit
+compinit
+eval "$(litenv completion zsh)"
+```
+
+`litenv completion install [zsh]` adds that `eval` line to your Zsh startup file inside a marked block:
+
+```console
+$ litenv completion install
+✓ Zsh completion enabled in ~/.zshrc
+Open a new shell or run `exec zsh` to use it.
+```
+
+The command is idempotent and reports `○ Zsh completion is already enabled` when the block is present. `litenv completion uninstall [zsh]` removes the block and leaves the rest of the file untouched. Both commands honour `ZDOTDIR`.
+
+The first successful interactive run in Zsh offers the same install once, with yes as the default. litenv records a decline under `$XDG_CONFIG_HOME/litenv` and does not ask again. The offer never appears in scripts, pipes, CI, or non-Zsh shells. Set `LITENV_NO_COMPLETION_PROMPT` to suppress it.
+
+The generated script groups suggestions so environments appear first under an `environment` heading and commands follow under a `command` heading. It sets `group-name` and the `descriptions` format only for litenv's own completion contexts, and only when you have not set them yourself, so a shell theme keeps control of the presentation.
+
+Environment suggestions are loaded from the nearest `litenv.toml` whenever completion runs, so changing the project configuration does not require regenerating a static file. Completion never connects to remote hosts.
+
+</details>
+
+<details>
 <summary><code>--help</code> and <code>--version</code> — CLI information</summary>
 
 ```sh
@@ -582,7 +662,7 @@ Commands
   `litenv staging check`
 ```
 
-Interactive selection requires a terminal. Scripts, CI jobs, pipes, and redirects must use an explicit target, `check --all`, `get --all`, or a colon diff selector.
+`list` is global and never opens a selector. Interactive selection for target-specific commands requires a terminal. Scripts, CI jobs, pipes, and redirects must use an explicit target, `check --all`, `get --all`, or a colon diff selector.
 
 ## Configuration
 
@@ -680,12 +760,13 @@ Set `NO_COLOR=1` to disable terminal styling. Output is automatically plain when
 
 ## Development
 
+Tests require Python 3 for real terminal sessions and Zsh for completion validation. These are development-only tools; using litenv requires only Node.js and, for remote environments, SSH.
+
 Install dependencies and run the complete test suite:
 
 ```sh
 npm install
 npm test
-npm run cloc
 ```
 
 To use your checkout as the global `litenv` command, build it and create an npm link:

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Fixed multiline values being truncated after updating a single-quoted variable.
+- Disabled terminal echo before showing secret prompts to prevent fast input from appearing on screen.
+- Expanded coverage of interactive CLI workflows, secret entry, and local and remote write safety.
+- Added `litenv list` for discovering local and configured remote environments, with `--names` for script-friendly selectors.
+- Added dynamic Zsh completion for environments, commands, and command-specific options, grouped so that environments are listed first.
+- Added `litenv completion install` and `litenv completion uninstall` to manage the completion block in the Zsh startup file.
+- Added a one-time prompt that offers to enable Zsh completion on the first successful interactive run.
+
 ## 0.1.0 - 2026-08-28
 
 - Added local and SSH-based `.env` management.
