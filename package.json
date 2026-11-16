@@ -22,11 +22,11 @@
     "prepublishOnly": "npm test"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "typescript": "^5.9.0"
+    "@types/node": "^24.19.2",
+    "typescript": "^6.0.3"
   },
   "keywords": [
     "dotenv",
